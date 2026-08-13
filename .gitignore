@@ -1,0 +1,58 @@
+# Local credentials and provider state
+.env
+**/.env
+**/.env.local
+**/.env.*.local
+auth.json
+*credential*.json
+*secret*.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Collaboration runtime and challenge evidence
+.collab/
+**/.collab/
+runtime/
+workspaces/
+evidence/
+*.pcap
+*.pcapng
+*.cap
+*.har
+*.zip
+*.7z
+*.rar
+*.tar
+*.gz
+
+# Python and test caches
+.venv/
+venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage.xml
+.coverage
+
+# Frontend/build artifacts and local databases
+node_modules/
+dist/
+build/
+target/
+*.exe
+*.msi
+*.log
+*.sqlite
+*.sqlite3
+*.db
+*.jsonl
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
