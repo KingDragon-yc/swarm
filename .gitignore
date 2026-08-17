@@ -16,6 +16,7 @@ auth.json
 **/.collab/
 runtime/
 workspaces/
+workplaces/
 evidence/
 *.pcap
 *.pcapng

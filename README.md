@@ -1,62 +1,71 @@
-# Swarm
+# IMF — Instant Message Force
 
-Swarm 是一个由 Codex/GPT 担任唯一 orchestrator 的八模型稀疏协作框架，面向已授权的 CTF、靶场和 SRC 工作。
+IMF 把四个 AI 特工放在同一篇飞书文档上写 board。飞书是实时 IM 通道；任务暂停或结束后，把文档存成每个目标 workplace 大区里的 `board.md`。
 
-它遵循一个简单原则：能由总控独立完成的任务不唤醒其他模型；只有出现明确的专长缺口、证据缺口或高风险复核需求时，才委派一名只读专家，必要时再增加一名反例检查者。
+Instant Message Force：善用飞书等 IM 做实时协同。四名特工按 **OODA** 串行：Observe → Orient → Decide → Act。
 
-## 模型拓扑
+## 四名特工
 
-- Codex/GPT：唯一 orchestrator，通过交互式 Codex TUI 或无人值守 `codex exec` 运行；
-- Claude、Gemini、Grok：通过 Cursor Agent CLI 调用；
-- DeepSeek、Kimi、GLM、Qwen：通过厂商或 SiliconFlow 的 OpenAI-compatible API 调用；
-- 飞书：把追加式事件账本投影到 Docx 文档，并可选发送群完成通知。
+| id | 型号 | 窗口 | OODA | 行事 |
+|---|---|---|---|---|
+| **flash** | DeepSeek V4 Flash · high | 1M | Observe | 发散、闲不住，前期侦察，先把观察写上 board |
+| **pro** | DeepSeek V4 Pro · max | 1M | Orient | 神鬼二象性，忽上忽下，把 Flash 的观察摆正 |
+| **luna** | GPT Luna max | 500k | Decide | 比较全能，拍板并给 Grok 写下有界命令 |
+| **grok** | Cursor Grok 4.6 high | 256k | Act | 聪明但懒，指哪打哪，执行 Luna 的命令后停 |
+
+Flash / Pro 走 DeepSeek API；Grok / Luna 走 Cursor CLI，或 `CURSOR_API_BASE` HTTP。
+
+## 上下文
+
+board 是长期记忆，对话不是。每人按自己的窗口截取 board 摘录；**压缩之前必须已经把要点写上飞书**。一项任务结束后：
+
+1. 把 `## Lessons` 追加进该小区 `AGENTS.md` 的 Notes；
+2. `/clear` 或新开对话（IMF 不 `--resume`）。
 
 ## 快速开始
 
-环境要求：Windows 10/11、PowerShell、Python 3.11+、已安装并登录的 Codex CLI。使用 Cursor 专家时还需安装并登录 Cursor Agent CLI。
+Python 3.11+。
 
-```powershell
-Copy-Item .\harness\.env.example .\harness\.env
-notepad .\harness\.env
+```bash
+cp .env.example .env
+python -m imf doctor
+python -m imf demo
+python -m imf web
 ```
 
-所有真实凭据只应写入被 Git 忽略的 `harness\.env`。
+浏览器打开 `http://127.0.0.1:3080`。三栏：任务列表、飞书 board、右侧 Creator 选插件。Windows 也可双击 `START_IMF.cmd`。
 
-双击：
+## Workplace
 
-```text
-START_COLLAB.cmd
+```
+workplaces/<mission>/
+  board.md
+  mission.md
+  notes.md
+  attachments/
+  flash/AGENTS.md
+  pro/AGENTS.md
+  luna/AGENTS.md
+  grok/AGENTS.md
 ```
 
-推荐流程：
+`## Plugins` 对应 `plugins/catalog.json`，对齐 DeepSeek Harness 创造模式。
 
-1. 选择 `[1]` 完成环境自检；
-2. 选择 `[2]` 运行离线零委派 Demo；
-3. 选择 `[3]` 启动交互式 Codex 总控；
-4. 按提示选择模型、推理强度和权限模式。
+## 飞书 board
 
-命令行示例：
+配置 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 后，创建任务会新开一篇 Docx。OODA 四人依次追加同一文档。Pause / Finish 把文档拉回 `board.md`。
 
-```powershell
-.\START_COLLAB.cmd doctor
-.\START_COLLAB.cmd demo
-.\START_COLLAB.cmd dry-run "分析附件并寻找 flag" "D:\CTF\challenge"
-.\START_COLLAB.cmd task "分析附件并寻找 flag" "D:\CTF\challenge" -NoFeishuSync
+## 命令
+
+```bash
+python -m imf start "auth-lab" "只审计当前授权目录" --attachments ./samples/src-lab
+python -m imf dispatch latest "第一轮 OODA" --mock
+python -m imf snapshot latest
+python -m imf finish latest --summary "本轮结束"
 ```
 
-完整操作说明见 [USER_MANUAL.md](USER_MANUAL.md)，协作协议见 [AGENTS.md](AGENTS.md)，架构说明见 [harness/docs/architecture.md](harness/docs/architecture.md)。
+`--parallel` 会跳过 OODA 顺序、四人同时写。默认不要开。
 
-## 安全边界
+## 安全
 
-- 仅用于明确授权的 CTF、靶场、实验室和 SRC 范围；
-- Cursor Worker 强制使用只读 Ask 模式；
-- API Worker 只接收账本摘要和显式提供的上下文文件；
-- API Key、App Secret、Cookie、登录态和运行账本不得提交或同步到公开文档；
-- 模型结论必须回到文件、流量、字节码、日志或复现环境核验；
-- 本地 FullAccess 只影响沙箱和审批，无法绕过模型服务端的内容安全策略。
-
-## 当前状态
-
-已实现单机稀疏协作、八模型名册、Cursor/API 统一适配、模型自动解析、追加式本地账本、飞书 Docx 投影、交互恢复、批处理入口和离线测试。多机租约、心跳、幂等执行与失败接管仍在路线图中。
-
-本公开仓库刻意不包含真实凭据、运行记录、题目附件、登录态、构建产物，以及早期实验中使用的 AgentScope/XuanMu/Buzz Desktop 上游源码副本。
+只用于已授权的 SRC、靶场和本地实验。密钥只放在被忽略的 `.env`。Board、事件和提示词会脱敏。

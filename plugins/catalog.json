@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "principle": "Everything an operative can use is a plugin. Cells opt in; the Force does not ship a hidden toolbox.",
+  "plugins": [
+    {
+      "id": "feishu-board",
+      "title": "Feishu Board",
+      "summary": "Read and post to the shared IM board. Default on for every operative."
+    },
+    {
+      "id": "files",
+      "title": "Files",
+      "summary": "Read authorized workplace files, attachments, and cell notes."
+    },
+    {
+      "id": "search",
+      "title": "Search",
+      "summary": "Grep the workplace for symbols, routes, and config keys."
+    },
+    {
+      "id": "shell",
+      "title": "Shell",
+      "summary": "Run commands inside the authorized workplace directory."
+    },
+    {
+      "id": "web",
+      "title": "Web",
+      "summary": "Fetch public documentation. No production credentials."
+    },
+    {
+      "id": "http-observe",
+      "title": "HTTP Observe",
+      "summary": "Send in-scope HTTP requests and record status, headers, and body shape."
+    },
+    {
+      "id": "evidence",
+      "title": "Evidence",
+      "summary": "Record file, offset, request, and command evidence without secrets."
+    },
+    {
+      "id": "diff",
+      "title": "Diff",
+      "summary": "Compare two files or two board revisions."
+    },
+    {
+      "id": "report",
+      "title": "Report",
+      "summary": "Format SRC findings: impact, preconditions, and fix notes."
+    }
+  ]
+}
