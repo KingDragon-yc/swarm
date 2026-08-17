@@ -19,6 +19,7 @@ from imf.force import Force
 from imf.plugins import apply_plugins, parse_plugins_markdown, suggest_plugins
 from imf.providers import (
     MockAdapter,
+    cursor_sandbox_mode,
     parse_cursor_json,
     parse_cursor_model_list,
     resolve_cursor_model,
@@ -158,6 +159,22 @@ class LedgerRedactTest(unittest.TestCase):
 
 
 class ForceTest(unittest.TestCase):
+    def test_dispatch_timeout_window_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            settings = _settings(temporary)
+            force = Force(settings)
+            mission = force.start(title="timeout", mission="lab", sync=False)
+            with self.assertRaises(ValueError):
+                force.dispatch(
+                    mission,
+                    task="bounded",
+                    mock=True,
+                    timeout=300,
+                    poll_interval=600,
+                    max_runtime=7_200,
+                    sync=False,
+                )
+
     def test_mock_dispatch_writes_four_board_posts_and_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             settings = _settings(temporary)
@@ -211,6 +228,10 @@ class ForceTest(unittest.TestCase):
 
 
 class AdapterTest(unittest.TestCase):
+    def test_cursor_sandbox_mode_matches_host_capability(self) -> None:
+        expected = "disabled" if os.name == "nt" else "enabled"
+        self.assertEqual(cursor_sandbox_mode(), expected)
+
     def test_cursor_model_list_parser(self) -> None:
         output = (
             "\x1b[32mcursor-grok-4.6-high\x1b[0m - Grok\n"
