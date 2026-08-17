@@ -44,6 +44,8 @@ class ProviderResult:
 
 
 class ProviderAdapter(Protocol):
+    def check_online(self, *, timeout: int) -> str: ...
+
     def invoke(
         self,
         *,
@@ -80,19 +82,20 @@ def operative_prompt(
         "authorization": "authorized SRC / lab scope only",
         "plugins": plugins,
         "cell": cell,
-        "cell_brief": cell_brief[-4_000:],
-        "task": task,
-        "board_excerpt": context,
+        "cell_brief": redact_text(cell_brief[-4_000:]),
+        "task": redact_text(task),
+        "board_excerpt": redact_text(context),
         "board_compacted": compacted,
         "constraints": [
             "stay inside the authorized workplace",
+            "all reads, writes, and commands must stay inside this workplace; do not use parent paths or other drives",
             "do not include API keys, cookies, or secrets",
             "cite files, offsets, requests, or commands as evidence",
             "label hypotheses and uncertainty",
             "the Feishu board is durable memory; this chat will be /clear'd",
             "post everything that must survive before this turn ends",
             "after the task, include ## Lessons for AGENTS.md Notes",
-            "to change tools, include a ## Plugins list of catalog ids",
+            "to suggest tools, include a ## Plugins list of catalog ids; plugin changes require human approval",
         ],
         "required_headings": [
             "## Findings",
@@ -107,6 +110,15 @@ def operative_prompt(
         ensure_ascii=False,
         separators=(",", ":"),
     )
+
+
+def validate_operative_report(text: str) -> None:
+    required = ("## Findings", "## Evidence", "## Uncertainty", "## Board update", "## Lessons")
+    missing = [heading for heading in required if heading not in text]
+    if missing:
+        raise RuntimeError(
+            "Operative violated the board report contract; missing " + ", ".join(missing),
+        )
 
 
 def parse_cursor_model_list(output: str) -> list[str]:
@@ -257,6 +269,7 @@ def parse_cursor_json(stdout: str) -> tuple[str, dict[str, Any]]:
 
 def _result(spec: AgentSpec, text: str, duration_ms: int, metadata: dict[str, Any]) -> ProviderResult:
     cleaned = redact_text(text.strip())
+    validate_operative_report(cleaned)
     return ProviderResult(
         agent=spec.name,
         text=cleaned,
@@ -273,6 +286,17 @@ class CursorAdapter:
         if spec.backend != "cursor":
             raise ValueError(f"{spec.name} is not a Cursor operative")
         self.spec = spec
+
+    def check_online(self, *, timeout: int) -> str:
+        if _cursor_executable():
+            models = list_cursor_models(timeout=min(timeout, 30))
+            selected, _ = resolve_cursor_model(self.spec, models)
+            return f"Cursor online ({selected})"
+        if self.spec.base_url and os.getenv(self.spec.api_key_env, "").strip():
+            return OpenAICompatibleAdapter(self.spec).check_online(timeout=timeout)
+        raise RuntimeError(
+            f"{self.spec.name} needs Cursor CLI on PATH, or CURSOR_API_BASE plus CURSOR_API_KEY",
+        )
 
     def invoke(
         self,
@@ -322,13 +346,14 @@ class CursorAdapter:
         args = [
             *_cursor_command(),
             "--print",
-            "--mode",
-            "ask",
             "--output-format",
             "json",
             "--model",
             selected_model,
             "--trust",
+            "--force",
+            "--sandbox",
+            "enabled",
             "--workspace",
             str(workspace.resolve()),
             prompt,
@@ -367,6 +392,33 @@ class CursorAdapter:
 class OpenAICompatibleAdapter:
     def __init__(self, spec: AgentSpec) -> None:
         self.spec = spec
+
+    def check_online(self, *, timeout: int) -> str:
+        api_key = os.getenv(self.spec.api_key_env, "").strip()
+        if not api_key:
+            raise RuntimeError(f"{self.spec.name} is missing {self.spec.api_key_env}")
+        if not self.spec.base_url:
+            raise RuntimeError(f"{self.spec.name} has no API base URL")
+        http_request = request.Request(
+            f"{self.spec.base_url}/models",
+            method="GET",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        try:
+            with request.urlopen(http_request, timeout=min(timeout, 30)):
+                return f"{self.spec.name} API online"
+        except error.HTTPError as exc:
+            if exc.code in {404, 405}:
+                return f"{self.spec.name} API reachable (models probe unsupported)"
+            body = exc.read().decode("utf-8", errors="replace")[-500:]
+            raise RuntimeError(
+                f"{self.spec.name} API online check failed with HTTP {exc.code}: "
+                f"{redact_text(body)}",
+            ) from exc
+        except (error.URLError, TimeoutError) as exc:
+            raise RuntimeError(
+                f"{self.spec.name} API online check failed: {redact_text(str(exc))}",
+            ) from exc
 
     def invoke(
         self,
@@ -463,6 +515,10 @@ class OpenAICompatibleAdapter:
 class MockAdapter:
     def __init__(self, spec: AgentSpec) -> None:
         self.spec = spec
+
+    def check_online(self, *, timeout: int) -> str:
+        del timeout
+        return f"Mock {self.spec.name} online"
 
     def invoke(
         self,

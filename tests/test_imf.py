@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -10,15 +11,21 @@ import unittest
 from unittest.mock import patch
 from urllib.request import Request, urlopen
 
-from imf.board import Board, format_post
+from imf.board import Board, _merge_board, format_post
 from imf.config import AGENT_IDS, load_local_env, load_settings
 from imf.context import append_notes, board_budget_chars, excerpt_board, extract_lessons
 from imf.feishu import FeishuClient, text_blocks
 from imf.force import Force
 from imf.plugins import apply_plugins, parse_plugins_markdown, suggest_plugins
-from imf.providers import MockAdapter, parse_cursor_json, parse_cursor_model_list, resolve_cursor_model
+from imf.providers import (
+    MockAdapter,
+    parse_cursor_json,
+    parse_cursor_model_list,
+    resolve_cursor_model,
+    validate_operative_report,
+)
 from imf.server import make_server
-from imf.workplace import create_workplace
+from imf.workplace import create_workplace, open_workplace
 
 
 def _settings(temporary: str):
@@ -90,6 +97,44 @@ class WorkplaceTest(unittest.TestCase):
             self.assertIn("IMF Board", raw)
             self.assertNotIn("secret-should-not-leak", raw)
 
+    def test_workplace_id_cannot_escape_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            settings = _settings(temporary)
+            settings.workplaces_dir.mkdir(parents=True)
+            outside = Path(temporary) / "outside"
+            outside.mkdir()
+            (outside / "state.json").write_text("{}", encoding="utf-8")
+            with self.assertRaises(FileNotFoundError):
+                open_workplace(settings, r"..\outside")
+
+    def test_attachment_source_cannot_contain_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            settings = _settings(temporary)
+            settings.workplaces_dir.mkdir(parents=True)
+            with self.assertRaises(ValueError):
+                create_workplace(
+                    settings,
+                    title="self-copy",
+                    mission="lab",
+                    attachments=settings.workplaces_dir,
+                )
+
+    def test_concurrent_board_posts_are_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            settings = _settings(temporary)
+            force = Force(settings)
+            mission = force.start(title="race", mission="lab", sync=False)
+            first = force.open(mission.id)
+            second = force.open(mission.id)
+
+            def post(index: int) -> None:
+                board = first.board if index % 2 else second.board
+                board.post(f"agent-{index}", "entry", sync=False)
+
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                list(pool.map(post, range(40)))
+            self.assertEqual(mission.workplace.read_board().count("### agent-"), 40)
+
 
 class LedgerRedactTest(unittest.TestCase):
     def test_board_and_events_redact_configured_secret(self) -> None:
@@ -134,6 +179,9 @@ class ForceTest(unittest.TestCase):
             self.assertEqual([item["ooda"] for item in results], ["observe", "orient", "decide", "act"])
             self.assertTrue(all(item["ok"] for item in results))
             self.assertTrue(all(item["session_cleared"] for item in results))
+            event_kinds = [event["kind"] for event in mission.workplace.events()]
+            self.assertIn("checkin.finished", event_kinds)
+            self.assertLess(event_kinds.index("checkin.finished"), event_kinds.index("dispatch.started"))
             board = mission.workplace.read_board()
             self.assertLess(board.index("### flash ·"), board.index("### pro ·"))
             self.assertLess(board.index("### pro ·"), board.index("### luna ·"))
@@ -211,6 +259,10 @@ class AdapterTest(unittest.TestCase):
         self.assertIn("## Findings", result.text)
         self.assertEqual(result.plugins, ["feishu-board", "files"])
         self.assertIn("## Lessons", result.text)
+
+    def test_operative_report_contract_rejects_unstructured_text(self) -> None:
+        with self.assertRaises(RuntimeError):
+            validate_operative_report("free-form answer")
 
 
 class FeishuPayloadTest(unittest.TestCase):
@@ -326,6 +378,18 @@ class WebTest(unittest.TestCase):
                 )
                 self.assertEqual(created["title"], "web-lab")
                 self.assertIn("flash", created["cells"])
+                checked = json.loads(
+                    urlopen(
+                        Request(
+                            base + f"/api/missions/{created['id']}/checkin",
+                            data=json.dumps({"mock": True}).encode("utf-8"),
+                            headers={"Content-Type": "application/json"},
+                            method="POST",
+                        ),
+                    ).read().decode("utf-8"),
+                )
+                self.assertEqual(len(checked["checkins"]), 4)
+                self.assertTrue(all(item["ok"] for item in checked["checkins"]))
                 dispatched = json.loads(
                     urlopen(
                         Request(
@@ -371,6 +435,28 @@ class ContextTest(unittest.TestCase):
         updated = append_notes(text, "Keep recon on the board.", stamp="2026-08-17T00:00:00+00:00")
         self.assertIn("seed", updated)
         self.assertIn("Keep recon on the board.", updated)
+
+
+class CheckinTest(unittest.TestCase):
+    def test_all_four_operatives_check_in_before_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            settings = _settings(temporary)
+            force = Force(settings)
+            mission = force.start(title="checkin", mission="lab", sync=False)
+            results = force.check_in(mission, mock=True)
+            self.assertEqual([item["agent"] for item in results], list(AGENT_IDS))
+            self.assertTrue(all(item["ok"] for item in results))
+            self.assertEqual(mission.workplace.read_state()["status"], "active")
+            self.assertEqual(set(mission.workplace.read_state()["presence"]), set(AGENT_IDS))
+
+
+class BoardMergeTest(unittest.TestCase):
+    def test_local_unsynced_posts_survive_feishu_pull(self) -> None:
+        local = "# IMF Board\n\n## Log\n\n### flash · one\n\nlocal\n"
+        remote = "# IMF Board\n\n## Log\n\n### pro · one\n\nremote\n"
+        merged = _merge_board(local, remote)
+        self.assertIn("### flash · one", merged)
+        self.assertIn("### pro · one", merged)
 
 
 if __name__ == "__main__":

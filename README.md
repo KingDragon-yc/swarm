@@ -14,6 +14,7 @@ Instant Message Force：善用飞书等 IM 做实时协同。四名特工按 **O
 | **grok** | Cursor Grok 4.6 high | 256k | Act | 聪明但懒，指哪打哪，执行 Luna 的命令后停 |
 
 Flash / Pro 走 DeepSeek API；Grok / Luna 走 Cursor CLI，或 `CURSOR_API_BASE` HTTP。
+Cursor operative 使用完整行动模式，并以当前 workplace 作为 workspace/sandbox 边界。
 
 ## 上下文
 
@@ -49,7 +50,9 @@ workplaces/<mission>/
   grok/AGENTS.md
 ```
 
-`## Plugins` 对应 `plugins/catalog.json`，对齐 DeepSeek Harness 创造模式。
+`## Plugins` 对应 `plugins/catalog.json`，对齐 DeepSeek Harness 创造模式。模型可以提出插件建议，实际变更由本地操作者确认。
+每次 dispatch 先让 flash、pro、luna、grok 四席签到；任一席离线，整轮行动会被阻断。
+mission 只能是 `workplaces/` 的直接子目录，附件会复制进该 workplace，并拒绝链接、超大目录和自包含复制。
 
 ## 飞书 board
 
@@ -59,12 +62,13 @@ workplaces/<mission>/
 
 ```bash
 python -m imf start "auth-lab" "只审计当前授权目录" --attachments ./samples/src-lab
+python -m imf checkin latest --mock
 python -m imf dispatch latest "第一轮 OODA" --mock
 python -m imf snapshot latest
 python -m imf finish latest --summary "本轮结束"
 ```
 
-`--parallel` 会跳过 OODA 顺序、四人同时写。默认不要开。
+`--parallel` 会跳过 OODA 顺序、四人同时写，但仍要求四席先签到。默认不要开。
 
 ## 安全
 

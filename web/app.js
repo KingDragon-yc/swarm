@@ -31,7 +31,11 @@ function renderMissions() {
   nav.innerHTML = "";
   for (const item of state.missions) {
     const button = document.createElement("button");
-    button.innerHTML = `<b>${item.title}</b><small>${item.status} · ${item.id}</small>`;
+    const title = document.createElement("b");
+    title.textContent = item.title;
+    const meta = document.createElement("small");
+    meta.textContent = `${item.status} · ${item.id}`;
+    button.append(title, meta);
     if (state.current && state.current.id === item.id) button.classList.add("active");
     button.onclick = () => openMission(item.id);
     nav.appendChild(button);
@@ -45,7 +49,13 @@ function renderOps() {
     const card = document.createElement("div");
     card.className = "op";
     card.dataset.agent = agent.name;
-    card.innerHTML = `<b>${agent.display}</b><span>${agent.ooda || agent.feature}</span><span>${formatTokens(agent.context_tokens)}</span>`;
+    const display = document.createElement("b");
+    display.textContent = agent.display;
+    const phase = document.createElement("span");
+    phase.textContent = agent.ooda || agent.feature;
+    const tokens = document.createElement("span");
+    tokens.textContent = formatTokens(agent.context_tokens);
+    card.append(display, phase, tokens);
     root.appendChild(card);
   }
 }
@@ -81,8 +91,18 @@ function renderCreator() {
   for (const plugin of state.plugins) {
     const row = document.createElement("label");
     row.className = "plugin";
-    row.innerHTML = `<input type="checkbox" ${selected.has(plugin.id) ? "checked" : ""} data-id="${plugin.id}" /><div><b>${plugin.title}</b><span>${plugin.summary}</span></div>`;
-    row.querySelector("input").onchange = savePlugins;
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = selected.has(plugin.id);
+    input.dataset.id = plugin.id;
+    const copy = document.createElement("div");
+    const title = document.createElement("b");
+    title.textContent = plugin.title;
+    const summary = document.createElement("span");
+    summary.textContent = plugin.summary;
+    copy.append(title, summary);
+    row.append(input, copy);
+    input.onchange = savePlugins;
     list.appendChild(row);
   }
 }

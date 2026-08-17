@@ -47,6 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
     dispatch.add_argument("--parallel", action="store_true", help="Skip OODA sequence; run at once")
     dispatch.add_argument("--no-sync", action="store_true")
 
+    checkin = sub.add_parser("checkin", help="Check that all four operatives are online")
+    checkin.add_argument("mission_id")
+    checkin.add_argument("--timeout", type=int, default=30)
+    checkin.add_argument("--mock", action="store_true")
+
     post = sub.add_parser("post", help="Write a board entry as an operative")
     post.add_argument("mission_id")
     post.add_argument("agent", choices=AGENT_IDS)
@@ -129,6 +134,11 @@ def main(argv: list[str] | None = None) -> int:
                 parallel=args.parallel,
             )
             _print_json({"mission_id": mission.id, "results": results})
+            return 0 if all(item.get("ok") for item in results) else 2
+        if args.command == "checkin":
+            mission = force.open(args.mission_id)
+            results = force.check_in(mission, mock=args.mock, timeout=args.timeout)
+            _print_json({"mission_id": mission.id, "checkins": results})
             return 0 if all(item.get("ok") for item in results) else 2
         if args.command == "post":
             mission = force.open(args.mission_id)

@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import secrets
 from typing import Any
 
 from .board import Board
@@ -82,6 +83,8 @@ class Force:
         return opened
 
     def set_plugins(self, mission: Mission, agent: str, plugins: list[str]) -> str:
+        if agent not in self.settings.agents:
+            raise ValueError(f"unknown operative: {agent}")
         known = catalog_ids(self.catalog)
         cleaned = []
         for item in plugins:
@@ -106,6 +109,67 @@ class Force:
         self.set_plugins(mission, agent, selected)
         return selected
 
+    def check_in(
+        self,
+        mission: Mission,
+        *,
+        mock: bool = False,
+        timeout: int = 30,
+    ) -> list[dict[str, Any]]:
+        """Require all four operatives to be reachable before any action starts."""
+        mission.workplace.update_state(status="checking_in")
+        mission.workplace.append_event(
+            actor="imf",
+            kind="checkin.started",
+            summary="Waiting for all four operatives to check in",
+            details={"agents": list(AGENT_IDS)},
+        )
+
+        def one(name: str) -> dict[str, Any]:
+            spec = self.settings.agents[name]
+            adapter = make_adapter(spec, mock=mock)
+            try:
+                detail = adapter.check_online(timeout=min(max(timeout, 1), 30))
+                result = {"ok": True, "agent": name, "ooda": spec.ooda, "detail": detail}
+                mission.workplace.append_event(
+                    actor=name,
+                    kind="agent.online",
+                    summary=f"{name} checked in",
+                    details={"agent": name, "ooda": spec.ooda, "detail": detail},
+                )
+            except Exception as exc:
+                result = {"ok": False, "agent": name, "ooda": spec.ooda, "error": str(exc)}
+                mission.workplace.append_event(
+                    actor=name,
+                    kind="agent.offline",
+                    summary=f"{name} failed to check in: {exc}",
+                    details={"agent": name, "ooda": spec.ooda},
+                )
+            return result
+
+        with ThreadPoolExecutor(max_workers=len(AGENT_IDS)) as pool:
+            results = list(pool.map(one, AGENT_IDS))
+        presence = {
+            item["agent"]: {
+                "online": bool(item["ok"]),
+                "detail": item.get("detail", item.get("error", "")),
+                "ooda": item["ooda"],
+            }
+            for item in results
+        }
+        all_online = all(item["ok"] for item in results)
+        mission.workplace.update_state(
+            status="active" if all_online else "blocked",
+            presence=presence,
+        )
+        mission.workplace.append_event(
+            actor="imf",
+            kind="checkin.finished" if all_online else "checkin.blocked",
+            summary=("All operatives are online" if all_online else "Action blocked until all operatives are online"),
+            details={"online": [item["agent"] for item in results if item["ok"]]},
+        )
+        return results
+
     def dispatch(
         self,
         mission: Mission,
@@ -121,12 +185,39 @@ class Force:
         for name in selected:
             if name not in self.settings.agents:
                 raise ValueError(f"unknown operative: {name}")
+        if not selected or len(set(selected)) != len(selected):
+            raise ValueError("dispatch agents must be non-empty and unique")
+        if not parallel and selected != AGENT_IDS:
+            raise ValueError("sequential dispatch requires all four operatives in OODA order; use --parallel for a subset")
+        if not 1 <= timeout <= 3_600:
+            raise ValueError("timeout must be between 1 and 3600 seconds")
+
+        checkins = self.check_in(mission, mock=mock, timeout=timeout)
+        if not all(item["ok"] for item in checkins):
+            return [
+                {
+                    "ok": False,
+                    "agent": item["agent"],
+                    "ooda": item["ooda"],
+                    "phase": "checkin",
+                    "error": item.get("error", "operative offline"),
+                }
+                for item in checkins
+            ]
+
+        round_id = f"{utc_now()}-{secrets.token_hex(3)}"
         mission.workplace.update_state(status="running")
         mission.workplace.append_event(
             actor="imf",
             kind="dispatch.started",
             summary="Dispatched " + " → ".join(selected),
-            details={"task": task, "mock": mock, "parallel": parallel, "ooda": True},
+            details={
+                "task": task,
+                "mock": mock,
+                "parallel": parallel,
+                "ooda": True,
+                "round_id": round_id,
+            },
         )
 
         def run_one(name: str) -> dict[str, Any]:
@@ -176,10 +267,12 @@ class Force:
             if lessons:
                 mission.workplace.append_lessons(name, lessons)
             if result.plugins:
-                try:
-                    self.set_plugins(mission, name, result.plugins)
-                except ValueError:
-                    pass
+                mission.workplace.append_event(
+                    actor=name,
+                    kind="plugins.suggested",
+                    summary=f"{name} suggested plugin changes",
+                    details={"plugins": result.plugins, "round_id": round_id},
+                )
             session = clear_session(
                 mission.workplace.cell(name),
                 metadata=result.metadata,
@@ -211,13 +304,16 @@ class Force:
                     results.append(future.result())
         else:
             for name in selected:
-                results.append(run_one(name))
-        mission.workplace.update_state(status="active")
+                result = run_one(name)
+                results.append(result)
+                if not result.get("ok"):
+                    break
+        mission.workplace.update_state(status="active" if all(item.get("ok") for item in results) else "failed")
         mission.workplace.append_event(
             actor="imf",
             kind="dispatch.finished",
             summary="Dispatch finished",
-            details={"results": results},
+            details={"results": results, "round_id": round_id},
         )
         return results
 
