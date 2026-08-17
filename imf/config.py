@@ -18,6 +18,12 @@ OodaPhase = Literal["observe", "orient", "decide", "act"]
 # OODA loop order. Default dispatch follows this sequence.
 AGENT_IDS = ("flash", "pro", "luna", "grok")
 
+# Long-running SRC turns need room for model/tool work. A heartbeat observed
+# during the polling window refreshes the idle deadline, up to the hard cap.
+DEFAULT_DISPATCH_TIMEOUT = 1_800
+DEFAULT_POLL_INTERVAL = 600
+DEFAULT_MAX_RUNTIME = 7_200
+
 
 @dataclass(frozen=True, slots=True)
 class AgentSpec:

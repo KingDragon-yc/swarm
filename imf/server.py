@@ -209,7 +209,9 @@ class IMFHandler(BaseHTTPRequestHandler):
                     task=str(body.get("task") or mission.workplace.mission_path.read_text(encoding="utf-8")),
                     agents=tuple(agents),
                     mock=bool(body.get("mock")),
-                    timeout=int(body.get("timeout") or 300),
+                    timeout=int(body.get("timeout") or 1_800),
+                    poll_interval=int(body.get("poll_interval") or 600),
+                    max_runtime=int(body.get("max_runtime") or 7_200),
                     sync=not body.get("no_sync"),
                     parallel=bool(body.get("parallel")),
                 )

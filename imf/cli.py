@@ -8,7 +8,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .config import AGENT_IDS, load_settings
+from .config import (
+    AGENT_IDS,
+    DEFAULT_DISPATCH_TIMEOUT,
+    DEFAULT_MAX_RUNTIME,
+    DEFAULT_POLL_INTERVAL,
+    load_settings,
+)
 from .feishu import FeishuClient, FeishuError
 from .force import Force, doctor_report
 from .plugins import load_catalog
@@ -42,7 +48,9 @@ def build_parser() -> argparse.ArgumentParser:
     dispatch.add_argument("mission_id")
     dispatch.add_argument("task")
     dispatch.add_argument("--agents", default=",".join(AGENT_IDS))
-    dispatch.add_argument("--timeout", type=int, default=300)
+    dispatch.add_argument("--timeout", type=int, default=DEFAULT_DISPATCH_TIMEOUT)
+    dispatch.add_argument("--poll-interval", type=int, default=DEFAULT_POLL_INTERVAL)
+    dispatch.add_argument("--max-runtime", type=int, default=DEFAULT_MAX_RUNTIME)
     dispatch.add_argument("--mock", action="store_true")
     dispatch.add_argument("--parallel", action="store_true", help="Skip OODA sequence; run at once")
     dispatch.add_argument("--no-sync", action="store_true")
@@ -130,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
                 agents=agents,
                 mock=args.mock,
                 timeout=args.timeout,
+                poll_interval=args.poll_interval,
+                max_runtime=args.max_runtime,
                 sync=not args.no_sync,
                 parallel=args.parallel,
             )

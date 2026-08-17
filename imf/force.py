@@ -10,7 +10,13 @@ import secrets
 from typing import Any
 
 from .board import Board
-from .config import AGENT_IDS, Settings
+from .config import (
+    AGENT_IDS,
+    DEFAULT_DISPATCH_TIMEOUT,
+    DEFAULT_MAX_RUNTIME,
+    DEFAULT_POLL_INTERVAL,
+    Settings,
+)
 from .context import board_budget_chars, clear_session, excerpt_board, extract_lessons
 from .feishu import FeishuClient, FeishuError
 from .plugins import catalog_ids, load_catalog, suggest_plugins
@@ -177,7 +183,9 @@ class Force:
         task: str,
         agents: tuple[str, ...] | None = None,
         mock: bool = False,
-        timeout: int = 300,
+        timeout: int = DEFAULT_DISPATCH_TIMEOUT,
+        poll_interval: int = DEFAULT_POLL_INTERVAL,
+        max_runtime: int = DEFAULT_MAX_RUNTIME,
         sync: bool = True,
         parallel: bool = False,
     ) -> list[dict[str, Any]]:
@@ -189,8 +197,14 @@ class Force:
             raise ValueError("dispatch agents must be non-empty and unique")
         if not parallel and selected != AGENT_IDS:
             raise ValueError("sequential dispatch requires all four operatives in OODA order; use --parallel for a subset")
-        if not 1 <= timeout <= 3_600:
-            raise ValueError("timeout must be between 1 and 3600 seconds")
+        if not 1 <= timeout <= 86_400:
+            raise ValueError("timeout must be between 1 and 86400 seconds")
+        if not 10 <= poll_interval <= 3_600:
+            raise ValueError("poll_interval must be between 10 and 3600 seconds")
+        if poll_interval > timeout:
+            raise ValueError("poll_interval must not exceed timeout")
+        if not timeout <= max_runtime <= 86_400:
+            raise ValueError("max_runtime must be between timeout and 86400 seconds")
 
         checkins = self.check_in(mission, mock=mock, timeout=timeout)
         if not all(item["ok"] for item in checkins):
@@ -244,6 +258,8 @@ class Force:
                     context=excerpt,
                     workspace=mission.workplace.path,
                     timeout=timeout,
+                    poll_interval=poll_interval,
+                    max_runtime=max_runtime,
                     plugins=plugins,
                     cell=str(mission.workplace.cell(name)),
                     cell_brief=cell_brief,
@@ -273,6 +289,19 @@ class Force:
                     summary=f"{name} suggested plugin changes",
                     details={"plugins": result.plugins, "round_id": round_id},
                 )
+            heartbeats = int(result.metadata.get("heartbeat_count", 0) or 0)
+            if heartbeats:
+                mission.workplace.append_event(
+                    actor=name,
+                    kind="dispatch.heartbeat",
+                    summary=f"{name} remained active across {heartbeats} polling intervals",
+                    details={
+                        "heartbeat_count": heartbeats,
+                        "poll_interval": poll_interval,
+                        "max_runtime": max_runtime,
+                        "round_id": round_id,
+                    },
+                )
             session = clear_session(
                 mission.workplace.cell(name),
                 metadata=result.metadata,
@@ -289,6 +318,7 @@ class Force:
                 "agent": name,
                 "ooda": spec.ooda,
                 "duration_ms": result.duration_ms,
+                "heartbeat_count": int(result.metadata.get("heartbeat_count", 0) or 0),
                 "feishu_warning": warning,
                 "plugins": mission.workplace.plugins_for(name),
                 "compacted": compacted,

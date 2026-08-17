@@ -57,19 +57,20 @@ mission 只能是 `workplaces/` 的直接子目录，附件会复制进该 workp
 
 ## 飞书 board
 
-配置 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 后，创建任务会新开一篇 Docx。OODA 四人依次追加同一文档。Pause / Finish 把文档拉回 `board.md`。
+配置 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 后，创建任务会新开一篇 Docx。每个 mission 首次同步通过 `FEISHU_FOLDER_TOKEN` 创建自己的文档，并把生成的 `document_id` / URL 写入该 workplace 的 `state.json`。旧 harness 中的 `FEISHU_DOCUMENT_ID` 不会被二代读取或覆盖；OODA 四人依次追加自己的文档，Pause / Finish 把文档拉回 `board.md`。
 
 ## 命令
 
 ```bash
 python -m imf start "auth-lab" "只审计当前授权目录" --attachments ./samples/src-lab
 python -m imf checkin latest --mock
-python -m imf dispatch latest "第一轮 OODA" --mock
+python -m imf dispatch latest "第一轮 OODA" --timeout 1800 --poll-interval 600 --max-runtime 7200 --mock
 python -m imf snapshot latest
 python -m imf finish latest --summary "本轮结束"
 ```
 
 `--parallel` 会跳过 OODA 顺序、四人同时写，但仍要求四席先签到。默认不要开。
+长轮次默认给每席 30 分钟空闲窗口、2 小时硬上限；每 10 分钟检查一次流式输出，发现正常输出就延长空闲窗口，直到硬上限。
 
 ## 安全
 

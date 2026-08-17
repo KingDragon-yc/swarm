@@ -159,6 +159,22 @@ class LedgerRedactTest(unittest.TestCase):
 
 
 class ForceTest(unittest.TestCase):
+    def test_dispatch_timeout_window_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            settings = _settings(temporary)
+            force = Force(settings)
+            mission = force.start(title="timeout", mission="lab", sync=False)
+            with self.assertRaises(ValueError):
+                force.dispatch(
+                    mission,
+                    task="bounded",
+                    mock=True,
+                    timeout=300,
+                    poll_interval=600,
+                    max_runtime=7_200,
+                    sync=False,
+                )
+
     def test_mock_dispatch_writes_four_board_posts_and_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             settings = _settings(temporary)

@@ -29,7 +29,11 @@ Flash 闲不住、1M 窗口，先把授权面铺开。Pro 神鬼二象性，读 
 
 ## 飞书
 
-工作时以飞书文档为 live board；本地 `board.md` 是收工快照。追加使用 `document_revision_id=-1`。同步失败时保留本地未同步条目，避免旧远端内容覆盖本地证据。
+工作时以飞书文档为 live board；本地 `board.md` 是收工快照。每个 mission 首次同步通过 `FEISHU_FOLDER_TOKEN` 创建自己的文档，生成的 `document_id` 写回 workplace；旧 harness 的 `FEISHU_DOCUMENT_ID` 不会被覆盖。追加使用 `document_revision_id=-1`。同步失败时保留本地未同步条目，避免旧远端内容覆盖本地证据。
+
+## 长轮次与心跳
+
+dispatch 默认每席允许 1800 秒空闲时间，硬上限 7200 秒；Cursor 使用流式 JSON 输出，每 600 秒检查一次是否有正常输出，有输出就刷新空闲窗口。超出硬上限或长期无输出会终止该席并把失败写入事件账本。
 
 ## Creator / 插件
 

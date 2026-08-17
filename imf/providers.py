@@ -10,6 +10,8 @@ import re
 import shutil
 import subprocess
 import time
+from queue import Empty, Queue
+from threading import Thread
 from typing import Any, Protocol
 from urllib import error, request
 
@@ -53,6 +55,8 @@ class ProviderAdapter(Protocol):
         context: str,
         workspace: Path,
         timeout: int,
+        poll_interval: int = 600,
+        max_runtime: int = 7_200,
     ) -> ProviderResult: ...
 
 
@@ -233,6 +237,98 @@ def cursor_sandbox_mode() -> str:
     return "disabled" if os.name == "nt" else "enabled"
 
 
+def _run_cursor_with_heartbeat(
+    args: list[str],
+    *,
+    workspace: Path,
+    timeout: int,
+    poll_interval: int,
+    max_runtime: int,
+    env: dict[str, str],
+) -> tuple[int, str, str, int, int]:
+    """Run Cursor while extending the idle deadline when stream output arrives."""
+    process = subprocess.Popen(
+        args,
+        cwd=workspace,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    )
+    stdout_parts: list[str] = []
+    stderr_parts: list[str] = []
+    activity: Queue[bool] = Queue()
+
+    def drain(stream: Any, target: list[str]) -> None:
+        try:
+            for line in iter(stream.readline, ""):
+                target.append(line)
+                activity.put(True)
+        finally:
+            stream.close()
+
+    readers = [
+        Thread(target=drain, args=(process.stdout, stdout_parts), daemon=True),
+        Thread(target=drain, args=(process.stderr, stderr_parts), daemon=True),
+    ]
+    for reader in readers:
+        reader.start()
+
+    started = time.monotonic()
+    idle_deadline = started + timeout
+    hard_deadline = started + max_runtime
+    next_poll = started + poll_interval
+    heartbeat_count = 0
+    activity_since_poll = False
+    try:
+        while process.poll() is None:
+            now = time.monotonic()
+            remaining = min(idle_deadline, hard_deadline) - now
+            if remaining <= 0:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+                raise RuntimeError(
+                    f"Cursor agent timed out after {max_runtime}s "
+                    f"({heartbeat_count} heartbeat extensions)",
+                )
+            wait_for = min(max(0.25, next_poll - now), remaining)
+            try:
+                activity.get(timeout=wait_for)
+                activity_since_poll = True
+            except Empty:
+                pass
+            if time.monotonic() >= next_poll:
+                had_activity = activity_since_poll
+                while True:
+                    try:
+                        activity.get_nowait()
+                        had_activity = True
+                    except Empty:
+                        break
+                if had_activity and process.poll() is None:
+                    heartbeat_count += 1
+                    idle_deadline = min(hard_deadline, time.monotonic() + timeout)
+                activity_since_poll = False
+                next_poll = time.monotonic() + poll_interval
+    finally:
+        for reader in readers:
+            reader.join(timeout=5)
+
+    return (
+        int(process.returncode or 0),
+        "".join(stdout_parts),
+        "".join(stderr_parts),
+        round((time.monotonic() - started) * 1000),
+        heartbeat_count,
+    )
+
+
 def parse_cursor_json(stdout: str) -> tuple[str, dict[str, Any]]:
     candidates = []
     for raw_line in stdout.splitlines():
@@ -315,6 +411,8 @@ class CursorAdapter:
         context: str,
         workspace: Path,
         timeout: int,
+        poll_interval: int = 600,
+        max_runtime: int = 7_200,
         plugins: list[str],
         cell: str,
         cell_brief: str = "",
@@ -330,7 +428,7 @@ class CursorAdapter:
             compacted=compacted,
         )
         if _cursor_executable():
-            return self._cli(prompt, workspace, timeout)
+            return self._cli(prompt, workspace, timeout, poll_interval, max_runtime)
         if self.spec.base_url and os.getenv(self.spec.api_key_env, "").strip():
             http = OpenAICompatibleAdapter(self.spec)
             return http.invoke(
@@ -338,6 +436,8 @@ class CursorAdapter:
                 context=context,
                 workspace=workspace,
                 timeout=timeout,
+                poll_interval=poll_interval,
+                max_runtime=max_runtime,
                 plugins=plugins,
                 cell=cell,
                 cell_brief=cell_brief,
@@ -347,7 +447,14 @@ class CursorAdapter:
             f"{self.spec.name} needs Cursor CLI on PATH, or CURSOR_API_BASE plus CURSOR_API_KEY",
         )
 
-    def _cli(self, prompt: str, workspace: Path, timeout: int) -> ProviderResult:
+    def _cli(
+        self,
+        prompt: str,
+        workspace: Path,
+        timeout: int,
+        poll_interval: int,
+        max_runtime: int,
+    ) -> ProviderResult:
         selected_model, selection = resolve_cursor_model(
             self.spec,
             list_cursor_models(timeout=min(timeout, 30)),
@@ -357,7 +464,8 @@ class CursorAdapter:
             *_cursor_command(),
             "--print",
             "--output-format",
-            "json",
+            "stream-json",
+            "--stream-partial-output",
             "--model",
             selected_model,
             "--trust",
@@ -368,34 +476,27 @@ class CursorAdapter:
             str(workspace.resolve()),
             prompt,
         ]
-        started = time.monotonic()
-        try:
-            completed = subprocess.run(
-                args,
-                cwd=workspace,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout,
-                check=False,
-                env={**os.environ, "NO_COLOR": "1", "CURSOR_INVOKED_AS": "agent"},
-            )
-        except subprocess.TimeoutExpired as exc:
+        returncode, stdout, stderr, duration_ms, heartbeat_count = _run_cursor_with_heartbeat(
+            args,
+            workspace=workspace,
+            timeout=timeout,
+            poll_interval=poll_interval,
+            max_runtime=max_runtime,
+            env={**os.environ, "NO_COLOR": "1", "CURSOR_INVOKED_AS": "agent"},
+        )
+        if returncode != 0:
+            diagnostic = redact_text((stderr or stdout)[-2000:])
             raise RuntimeError(
-                f"Cursor agent {self.spec.name} timed out after {timeout}s",
-            ) from exc
-        duration_ms = round((time.monotonic() - started) * 1000)
-        if completed.returncode != 0:
-            diagnostic = redact_text((completed.stderr or completed.stdout)[-2000:])
-            raise RuntimeError(
-                f"Cursor agent {self.spec.name} exited {completed.returncode}: {diagnostic}",
+                f"Cursor agent {self.spec.name} exited {returncode}: {diagnostic}",
             )
-        text, metadata = parse_cursor_json(completed.stdout)
+        text, metadata = parse_cursor_json(stdout)
         metadata["configured_model"] = self.spec.model
         metadata["resolved_model"] = selected_model
         metadata["model_selection"] = selection
         metadata["transport"] = "cursor_cli"
+        metadata["heartbeat_count"] = heartbeat_count
+        metadata["poll_interval_seconds"] = poll_interval
+        metadata["max_runtime_seconds"] = max_runtime
         return _result(self.spec, text, duration_ms, metadata)
 
 
@@ -437,12 +538,14 @@ class OpenAICompatibleAdapter:
         context: str,
         workspace: Path,
         timeout: int,
+        poll_interval: int = 600,
+        max_runtime: int = 7_200,
         plugins: list[str],
         cell: str,
         cell_brief: str = "",
         compacted: bool = False,
     ) -> ProviderResult:
-        del workspace
+        del workspace, poll_interval, max_runtime
         api_key = os.getenv(self.spec.api_key_env, "").strip()
         if not api_key:
             raise RuntimeError(f"{self.spec.name} is missing {self.spec.api_key_env}")
@@ -537,12 +640,14 @@ class MockAdapter:
         context: str,
         workspace: Path,
         timeout: int,
+        poll_interval: int = 600,
+        max_runtime: int = 7_200,
         plugins: list[str],
         cell: str,
         cell_brief: str = "",
         compacted: bool = False,
     ) -> ProviderResult:
-        del workspace, timeout, cell, cell_brief
+        del workspace, timeout, poll_interval, max_runtime, cell, cell_brief
         plugin_lines = "\n".join(f"- {item}" for item in plugins) or "- feishu-board"
         saw = ""
         if self.spec.ooda != "observe" and "### flash ·" in context:
