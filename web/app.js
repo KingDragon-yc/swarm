@@ -8,6 +8,13 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
+function formatTokens(n) {
+  if (!n) return "";
+  if (n >= 1_000_000) return `${n / 1_000_000}M ctx`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k ctx`;
+  return `${n} tok`;
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -35,11 +42,10 @@ function renderOps() {
   const root = $("ops");
   root.innerHTML = "";
   for (const agent of state.roster) {
-    const cell = state.current?.cells?.[agent.name];
     const card = document.createElement("div");
     card.className = "op";
     card.dataset.agent = agent.name;
-    card.innerHTML = `<b>${agent.display}</b><span>${agent.feature}</span><span>${(cell?.plugins || []).length} plugins</span>`;
+    card.innerHTML = `<b>${agent.display}</b><span>${agent.ooda || agent.feature}</span><span>${formatTokens(agent.context_tokens)}</span>`;
     root.appendChild(card);
   }
 }
@@ -159,7 +165,7 @@ $("composer").onsubmit = async (event) => {
   if (!state.current) return;
   await api(`/api/missions/${state.current.id}/dispatch`, {
     method: "POST",
-    body: { task: $("task").value, mock: $("mock").checked },
+    body: { task: $("task").value, mock: $("mock").checked, parallel: $("parallel").checked },
   });
   await openMission(state.current.id);
 };

@@ -10,6 +10,7 @@ from typing import Any
 
 from .board import Board
 from .config import AGENT_IDS, Settings
+from .context import board_budget_chars, clear_session, excerpt_board, extract_lessons
 from .feishu import FeishuClient, FeishuError
 from .plugins import catalog_ids, load_catalog, suggest_plugins
 from .providers import make_adapter
@@ -114,6 +115,7 @@ class Force:
         mock: bool = False,
         timeout: int = 300,
         sync: bool = True,
+        parallel: bool = False,
     ) -> list[dict[str, Any]]:
         selected = agents or AGENT_IDS
         for name in selected:
@@ -123,24 +125,38 @@ class Force:
         mission.workplace.append_event(
             actor="imf",
             kind="dispatch.started",
-            summary="Dispatched " + ", ".join(selected),
-            details={"task": task, "mock": mock},
+            summary="Dispatched " + " → ".join(selected),
+            details={"task": task, "mock": mock, "parallel": parallel, "ooda": True},
         )
-        context = mission.workplace.read_board()[-12_000:]
-        results: list[dict[str, Any]] = []
 
         def run_one(name: str) -> dict[str, Any]:
             spec = self.settings.agents[name]
             plugins = mission.workplace.plugins_for(name)
+            board = mission.workplace.read_board()
+            excerpt, compacted = excerpt_board(board, spec)
+            if compacted:
+                mission.workplace.append_event(
+                    actor=name,
+                    kind="context.compacted",
+                    summary=(
+                        f"{name} loaded a board excerpt "
+                        f"({len(excerpt)} chars, budget {board_budget_chars(spec)})"
+                    ),
+                    details={"budget_chars": board_budget_chars(spec)},
+                )
+            cell_path = mission.workplace.agents_md(name)
+            cell_brief = cell_path.read_text(encoding="utf-8") if cell_path.is_file() else ""
             adapter = make_adapter(spec, mock=mock)
             try:
                 result = adapter.invoke(
                     task=task,
-                    context=context,
+                    context=excerpt,
                     workspace=mission.workplace.path,
                     timeout=timeout,
                     plugins=plugins,
                     cell=str(mission.workplace.cell(name)),
+                    cell_brief=cell_brief,
+                    compacted=compacted,
                 )
             except Exception as exc:
                 mission.workplace.append_event(
@@ -148,7 +164,7 @@ class Force:
                     kind="dispatch.failed",
                     summary=str(exc),
                 )
-                return {"ok": False, "agent": name, "error": str(exc)}
+                return {"ok": False, "agent": name, "ooda": spec.ooda, "error": str(exc)}
             warning = mission.board.post(name, result.text, sync=sync)
             notes = mission.workplace.cell_notes(name)
             existing = notes.read_text(encoding="utf-8") if notes.is_file() else ""
@@ -156,23 +172,46 @@ class Force:
                 existing.rstrip() + "\n\n" + result.text.strip() + "\n",
                 encoding="utf-8",
             )
+            lessons = extract_lessons(result.text)
+            if lessons:
+                mission.workplace.append_lessons(name, lessons)
             if result.plugins:
                 try:
                     self.set_plugins(mission, name, result.plugins)
                 except ValueError:
                     pass
+            session = clear_session(
+                mission.workplace.cell(name),
+                metadata=result.metadata,
+                task=task,
+            )
+            mission.workplace.append_event(
+                actor=name,
+                kind="session.cleared",
+                summary=f"{name} /clear after {spec.ooda}",
+                details={"method": session.get("method", "new_conversation")},
+            )
             return {
                 "ok": True,
                 "agent": name,
+                "ooda": spec.ooda,
                 "duration_ms": result.duration_ms,
                 "feishu_warning": warning,
                 "plugins": mission.workplace.plugins_for(name),
+                "compacted": compacted,
+                "session_cleared": True,
+                "lessons": bool(lessons),
             }
 
-        with ThreadPoolExecutor(max_workers=len(selected)) as pool:
-            futures = {pool.submit(run_one, name): name for name in selected}
-            for future in as_completed(futures):
-                results.append(future.result())
+        results: list[dict[str, Any]] = []
+        if parallel:
+            with ThreadPoolExecutor(max_workers=len(selected)) as pool:
+                futures = {pool.submit(run_one, name): name for name in selected}
+                for future in as_completed(futures):
+                    results.append(future.result())
+        else:
+            for name in selected:
+                results.append(run_one(name))
         mission.workplace.update_state(status="active")
         mission.workplace.append_event(
             actor="imf",
@@ -283,6 +322,8 @@ def doctor_report(settings: Settings, *, probe_cursor: bool = False) -> dict[str
                 "name": spec.name,
                 "display": spec.display,
                 "feature": spec.feature,
+                "ooda": spec.ooda,
+                "context_tokens": spec.context_tokens,
                 "vendor": spec.vendor,
                 "backend": spec.backend,
                 "model": spec.model,

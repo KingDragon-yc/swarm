@@ -96,6 +96,9 @@ class IMFHandler(BaseHTTPRequestHandler):
                                 "name": spec.name,
                                 "display": spec.display,
                                 "feature": spec.feature,
+                                "ooda": spec.ooda,
+                                "context_tokens": spec.context_tokens,
+                                "duty": spec.duty,
                                 "vendor": spec.vendor,
                                 "backend": spec.backend,
                                 "model": spec.model,
@@ -194,6 +197,7 @@ class IMFHandler(BaseHTTPRequestHandler):
                     mock=bool(body.get("mock")),
                     timeout=int(body.get("timeout") or 300),
                     sync=not body.get("no_sync"),
+                    parallel=bool(body.get("parallel")),
                 )
                 self._json(200, {"results": results, "mission": mission.workplace.public_view()})
                 return

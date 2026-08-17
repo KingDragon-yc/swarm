@@ -65,24 +65,33 @@ def operative_prompt(
     context: str,
     plugins: list[str],
     cell: str,
+    cell_brief: str = "",
+    compacted: bool = False,
 ) -> str:
     envelope = {
         "force": "IMF — Instant Message Force",
         "operative": spec.display,
         "id": spec.name,
+        "ooda": spec.ooda,
+        "context_tokens": spec.context_tokens,
         "feature": spec.feature,
-        "role": spec.role,
+        "style": spec.style,
+        "duty": spec.duty,
         "authorization": "authorized SRC / lab scope only",
         "plugins": plugins,
         "cell": cell,
+        "cell_brief": cell_brief[-4_000:],
         "task": task,
-        "board_excerpt": context[-12_000:],
+        "board_excerpt": context,
+        "board_compacted": compacted,
         "constraints": [
             "stay inside the authorized workplace",
             "do not include API keys, cookies, or secrets",
             "cite files, offsets, requests, or commands as evidence",
             "label hypotheses and uncertainty",
-            "your reply is posted to the shared Feishu board",
+            "the Feishu board is durable memory; this chat will be /clear'd",
+            "post everything that must survive before this turn ends",
+            "after the task, include ## Lessons for AGENTS.md Notes",
             "to change tools, include a ## Plugins list of catalog ids",
         ],
         "required_headings": [
@@ -90,6 +99,7 @@ def operative_prompt(
             "## Evidence",
             "## Uncertainty",
             "## Board update",
+            "## Lessons",
         ],
     }
     return "Write the board update for this IMF envelope: " + json.dumps(
@@ -273,6 +283,8 @@ class CursorAdapter:
         timeout: int,
         plugins: list[str],
         cell: str,
+        cell_brief: str = "",
+        compacted: bool = False,
     ) -> ProviderResult:
         prompt = operative_prompt(
             self.spec,
@@ -280,6 +292,8 @@ class CursorAdapter:
             context=context,
             plugins=plugins,
             cell=cell,
+            cell_brief=cell_brief,
+            compacted=compacted,
         )
         if _cursor_executable():
             return self._cli(prompt, workspace, timeout)
@@ -292,6 +306,8 @@ class CursorAdapter:
                 timeout=timeout,
                 plugins=plugins,
                 cell=cell,
+                cell_brief=cell_brief,
+                compacted=compacted,
             )
         raise RuntimeError(
             f"{self.spec.name} needs Cursor CLI on PATH, or CURSOR_API_BASE plus CURSOR_API_KEY",
@@ -302,6 +318,7 @@ class CursorAdapter:
             self.spec,
             list_cursor_models(timeout=min(timeout, 30)),
         )
+        # New conversation every turn. Never --resume / --continue; that is /clear.
         args = [
             *_cursor_command(),
             "--print",
@@ -360,6 +377,8 @@ class OpenAICompatibleAdapter:
         timeout: int,
         plugins: list[str],
         cell: str,
+        cell_brief: str = "",
+        compacted: bool = False,
     ) -> ProviderResult:
         del workspace
         api_key = os.getenv(self.spec.api_key_env, "").strip()
@@ -375,8 +394,11 @@ class OpenAICompatibleAdapter:
                 {
                     "role": "system",
                     "content": (
-                        "You are an IMF operative on an authorized SRC/lab mission. "
-                        "Write a board update. Do not reveal private chain-of-thought."
+                        f"You are {self.spec.display}, IMF {self.spec.ooda} "
+                        f"({self.spec.context_tokens} token window). "
+                        f"{self.spec.duty} "
+                        "Write a board update. This chat will be cleared. "
+                        "Do not reveal private chain-of-thought."
                     ),
                 },
                 {
@@ -387,6 +409,8 @@ class OpenAICompatibleAdapter:
                         context=context,
                         plugins=plugins,
                         cell=cell,
+                        cell_brief=cell_brief,
+                        compacted=compacted,
                     ),
                 },
             ],
@@ -449,21 +473,28 @@ class MockAdapter:
         timeout: int,
         plugins: list[str],
         cell: str,
+        cell_brief: str = "",
+        compacted: bool = False,
     ) -> ProviderResult:
-        del context, workspace, timeout, cell
+        del workspace, timeout, cell, cell_brief
         plugin_lines = "\n".join(f"- {item}" for item in plugins) or "- feishu-board"
+        saw = ""
+        if self.spec.ooda != "observe" and "### flash ·" in context:
+            saw = "Saw flash on the board.\n"
         return ProviderResult(
             agent=self.spec.name,
             text=(
-                f"## Findings\nMock {self.spec.display} covered the authorized workplace.\n\n"
+                f"## Findings\nMock {self.spec.display} ({self.spec.ooda}) "
+                f"covered the authorized workplace.\n\n"
                 "## Evidence\nNo external provider was contacted.\n\n"
                 "## Uncertainty\nIntegration-path test only.\n\n"
-                f"## Board update\n{self.spec.display} is on station for: {task[:160]}\n\n"
+                f"## Board update\n{saw}{self.spec.duty} Task: {task[:160]}\n\n"
+                f"## Lessons\nKeep {self.spec.ooda} outputs on the board before /clear.\n\n"
                 f"## Plugins\n{plugin_lines}\n"
             ),
             duration_ms=0,
             plugins=list(plugins),
-            metadata={"mock": True},
+            metadata={"mock": True, "compacted": compacted, "session_id": ""},
         )
 
 

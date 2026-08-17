@@ -12,7 +12,7 @@
       <div class="mark">IMF</div>
       <div>
         <strong>Instant Message Force</strong>
-        <span>Feishu board · four operatives</span>
+        <span>Feishu board · OODA force</span>
       </div>
     </div>
     <button class="ghost" id="new-mission">New mission</button>
@@ -28,7 +28,7 @@
     <header class="top">
       <div>
         <h1 id="mission-title">No mission</h1>
-        <p id="mission-meta">Open or create a workplace. The live board is a Feishu document; board.md is the snapshot.</p>
+        <p id="mission-meta">OODA loop: Flash observes → Pro orients → Luna decides → Grok acts. Board first, then /clear.</p>
       </div>
       <div class="ops" id="ops"></div>
     </header>
@@ -47,9 +47,10 @@
     </section>
 
     <form id="composer" class="composer">
-      <textarea id="task" placeholder="Dispatch a bounded SRC task. All four operatives will write the Feishu board."></textarea>
+      <textarea id="task" placeholder="Dispatch a bounded SRC task. OODA: Flash → Pro → Luna → Grok, each posting to the Feishu board then /clear."></textarea>
       <div class="composer-bar">
         <label class="check"><input type="checkbox" id="mock" /> mock</label>
+        <label class="check"><input type="checkbox" id="parallel" /> skip sequence</label>
         <button type="submit" class="primary">Dispatch Force</button>
       </div>
     </form>
@@ -57,7 +58,7 @@
 
   <aside class="creator">
     <div class="section-label">Creator</div>
-    <p class="hint">Each operative owns a cell. Feature is a stub this round; plugins are selected here, the same idea as DeepSeek Harness create mode.</p>
+    <p class="hint">Each cell is one OODA role. Plugins are selected here, the same idea as DeepSeek Harness create mode. Lessons from finished tasks accumulate in AGENTS.md Notes.</p>
     <div class="agent-tabs" id="agent-tabs"></div>
     <form id="compose-form" class="compose-box">
       <textarea id="compose-text" placeholder="Describe what this operative needs."></textarea>

@@ -12,6 +12,7 @@ import threading
 from typing import Any
 
 from .config import AGENT_IDS, AgentSpec, Settings
+from .context import append_notes, utc_stamp
 from .plugins import apply_plugins, default_plugins, parse_plugins_markdown, render_agents_md
 from .secrets import redact, redact_text
 
@@ -60,6 +61,9 @@ class Workplace:
 
     def cell_notes(self, agent: str) -> Path:
         return self.cell(agent) / "notes.md"
+
+    def session_path(self, agent: str) -> Path:
+        return self.cell(agent) / "session.json"
 
     def read_state(self) -> dict[str, Any]:
         return json.loads(self.state_path.read_text(encoding="utf-8"))
@@ -138,24 +142,27 @@ class Workplace:
         if path.is_file():
             text = apply_plugins(path.read_text(encoding="utf-8"), plugins)
         else:
-            text = render_agents_md(
-                agent=agent,
-                display=spec.display,
-                feature=spec.feature,
-                role=spec.role,
-                plugins=plugins,
-            )
+            text = render_agents_md(spec, plugins)
         path.write_text(text, encoding="utf-8")
         return text
+
+    def append_lessons(self, agent: str, lesson: str) -> str:
+        path = self.agents_md(agent)
+        current = path.read_text(encoding="utf-8") if path.is_file() else ""
+        updated = append_notes(current, lesson, stamp=utc_stamp())
+        path.write_text(updated, encoding="utf-8")
+        return updated
 
     def public_view(self) -> dict[str, Any]:
         state = self.read_state()
         cells = {}
         for agent in AGENT_IDS:
+            session = self.session_path(agent)
             cells[agent] = {
                 "plugins": self.plugins_for(agent),
                 "agents_md": str(self.agents_md(agent)),
                 "notes": self.cell_notes(agent).is_file(),
+                "session_cleared": session.is_file(),
             }
         return {
             "id": self.mission_id,
@@ -213,13 +220,7 @@ def create_workplace(
         cell = workplace.cell(agent)
         cell.mkdir()
         workplace.agents_md(agent).write_text(
-            render_agents_md(
-                agent=agent,
-                display=spec.display,
-                feature=spec.feature,
-                role=spec.role,
-                plugins=list(default_plugins(agent)),
-            ),
+            render_agents_md(spec, list(default_plugins(agent))),
             encoding="utf-8",
         )
         workplace.cell_notes(agent).write_text("", encoding="utf-8")

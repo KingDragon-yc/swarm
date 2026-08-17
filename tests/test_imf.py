@@ -11,7 +11,8 @@ from unittest.mock import patch
 from urllib.request import Request, urlopen
 
 from imf.board import Board, format_post
-from imf.config import load_local_env, load_settings
+from imf.config import AGENT_IDS, load_local_env, load_settings
+from imf.context import append_notes, board_budget_chars, excerpt_board, extract_lessons
 from imf.feishu import FeishuClient, text_blocks
 from imf.force import Force
 from imf.plugins import apply_plugins, parse_plugins_markdown, suggest_plugins
@@ -35,6 +36,15 @@ class RosterTest(unittest.TestCase):
         self.assertEqual(agents["pro"].reasoning, "max")
         self.assertEqual(agents["grok"].model, "cursor-grok-4.6-high")
         self.assertEqual(agents["luna"].model, "gpt-5.6-luna-high")
+        self.assertEqual(tuple(agents), AGENT_IDS)
+        self.assertEqual(agents["flash"].ooda, "observe")
+        self.assertEqual(agents["pro"].ooda, "orient")
+        self.assertEqual(agents["luna"].ooda, "decide")
+        self.assertEqual(agents["grok"].ooda, "act")
+        self.assertEqual(agents["flash"].context_tokens, 1_000_000)
+        self.assertEqual(agents["pro"].context_tokens, 1_000_000)
+        self.assertEqual(agents["luna"].context_tokens, 500_000)
+        self.assertEqual(agents["grok"].context_tokens, 256_000)
         self.assertEqual(agents["flash"].backend, "openai_compatible")
         self.assertEqual(agents["grok"].backend, "cursor")
         self.assertEqual(agents["luna"].backend, "cursor")
@@ -70,9 +80,12 @@ class WorkplaceTest(unittest.TestCase):
             self.assertTrue(workplace.board_path.is_file())
             self.assertTrue(workplace.mission_path.is_file())
             self.assertTrue(workplace.attachments.joinpath("app.py").is_file())
-            for agent in ("flash", "pro", "grok", "luna"):
+            for agent in ("flash", "pro", "luna", "grok"):
                 self.assertTrue(workplace.agents_md(agent).is_file())
                 self.assertIn("feishu-board", workplace.plugins_for(agent))
+                markdown = workplace.agents_md(agent).read_text(encoding="utf-8")
+                self.assertIn("OODA:", markdown)
+                self.assertIn("## Context", markdown)
             raw = workplace.read_board()
             self.assertIn("IMF Board", raw)
             self.assertNotIn("secret-should-not-leak", raw)
@@ -117,9 +130,20 @@ class ForceTest(unittest.TestCase):
                 sync=False,
             )
             self.assertEqual(len(results), 4)
+            self.assertEqual([item["agent"] for item in results], ["flash", "pro", "luna", "grok"])
+            self.assertEqual([item["ooda"] for item in results], ["observe", "orient", "decide", "act"])
             self.assertTrue(all(item["ok"] for item in results))
+            self.assertTrue(all(item["session_cleared"] for item in results))
             board = mission.workplace.read_board()
-            for agent in ("flash", "pro", "grok", "luna"):
+            self.assertLess(board.index("### flash ·"), board.index("### pro ·"))
+            self.assertLess(board.index("### pro ·"), board.index("### luna ·"))
+            self.assertLess(board.index("### luna ·"), board.index("### grok ·"))
+            pro_notes = mission.workplace.cell_notes("pro").read_text(encoding="utf-8")
+            self.assertIn("Saw flash on the board.", pro_notes)
+            grok_agents = mission.workplace.agents_md("grok").read_text(encoding="utf-8")
+            self.assertIn("Keep act outputs on the board", grok_agents)
+            self.assertTrue(mission.workplace.session_path("luna").is_file())
+            for agent in ("flash", "pro", "luna", "grok"):
                 self.assertIn(f"### {agent} ·", board)
                 self.assertTrue(mission.workplace.cell_notes(agent).read_text(encoding="utf-8").strip())
             force.pause(mission)
@@ -186,6 +210,7 @@ class AdapterTest(unittest.TestCase):
         )
         self.assertIn("## Findings", result.text)
         self.assertEqual(result.plugins, ["feishu-board", "files"])
+        self.assertIn("## Lessons", result.text)
 
 
 class FeishuPayloadTest(unittest.TestCase):
@@ -282,6 +307,7 @@ class WebTest(unittest.TestCase):
                 self.assertIn("Instant Message Force", home)
                 roster = json.loads(urlopen(base + "/api/roster").read().decode("utf-8"))
                 self.assertEqual(len(roster["agents"]), 4)
+                self.assertEqual([item["ooda"] for item in roster["agents"]], ["observe", "orient", "decide", "act"])
                 created = json.loads(
                     urlopen(
                         Request(
@@ -311,6 +337,8 @@ class WebTest(unittest.TestCase):
                     ).read().decode("utf-8"),
                 )
                 self.assertEqual(len(dispatched["results"]), 4)
+                self.assertEqual(dispatched["results"][0]["agent"], "flash")
+                self.assertEqual(dispatched["results"][-1]["agent"], "grok")
                 board = json.loads(
                     urlopen(base + f"/api/missions/{created['id']}/board").read().decode("utf-8"),
                 )
@@ -318,6 +346,31 @@ class WebTest(unittest.TestCase):
             finally:
                 server.shutdown()
                 server.server_close()
+
+
+class ContextTest(unittest.TestCase):
+    def test_excerpt_keeps_log_tail_after_budget(self) -> None:
+        spec = load_settings().agents["grok"]
+        budget = board_budget_chars(spec)
+        board = "# IMF Board\n\n## Log\n\n" + ("flash saw A\n" * 20) + ("luna order Z\n" * (budget // 8))
+        excerpt, compacted = excerpt_board(board, spec)
+        self.assertTrue(compacted)
+        self.assertLessEqual(len(excerpt), budget + 200)
+        self.assertIn("luna order Z", excerpt)
+        self.assertIn("compacted", excerpt)
+
+    def test_small_board_is_not_compacted(self) -> None:
+        spec = load_settings().agents["flash"]
+        excerpt, compacted = excerpt_board("# IMF Board\n\n## Log\n\nhi\n", spec)
+        self.assertFalse(compacted)
+        self.assertIn("hi", excerpt)
+
+    def test_lessons_append_under_notes(self) -> None:
+        text = "# Agent: Flash\n\n## Plugins\n\n- files\n\n## Notes\n\nseed\n"
+        self.assertEqual(extract_lessons("## Lessons\nKeep recon on the board.\n"), "Keep recon on the board.")
+        updated = append_notes(text, "Keep recon on the board.", stamp="2026-08-17T00:00:00+00:00")
+        self.assertIn("seed", updated)
+        self.assertIn("Keep recon on the board.", updated)
 
 
 if __name__ == "__main__":

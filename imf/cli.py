@@ -44,6 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     dispatch.add_argument("--agents", default=",".join(AGENT_IDS))
     dispatch.add_argument("--timeout", type=int, default=300)
     dispatch.add_argument("--mock", action="store_true")
+    dispatch.add_argument("--parallel", action="store_true", help="Skip OODA sequence; run at once")
     dispatch.add_argument("--no-sync", action="store_true")
 
     post = sub.add_parser("post", help="Write a board entry as an operative")
@@ -125,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
                 mock=args.mock,
                 timeout=args.timeout,
                 sync=not args.no_sync,
+                parallel=args.parallel,
             )
             _print_json({"mission_id": mission.id, "results": results})
             return 0 if all(item.get("ok") for item in results) else 2

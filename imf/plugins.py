@@ -12,13 +12,15 @@ import json
 import re
 from pathlib import Path
 
+from .config import AgentSpec
+
 
 _PLUGIN_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,40}$")
 _DEFAULTS = {
-    "flash": ("feishu-board", "files", "search", "evidence", "report"),
-    "pro": ("feishu-board", "files", "search", "http-observe", "evidence", "diff", "report"),
-    "grok": ("feishu-board", "files", "search", "shell", "evidence", "report"),
+    "flash": ("feishu-board", "files", "search", "evidence"),
+    "pro": ("feishu-board", "files", "search", "diff", "evidence", "report"),
     "luna": ("feishu-board", "files", "web", "evidence", "report"),
+    "grok": ("feishu-board", "files", "shell", "http-observe", "evidence"),
 }
 
 
@@ -83,22 +85,27 @@ def parse_plugins_markdown(text: str) -> list[str]:
 
 
 def render_agents_md(
-    *,
-    agent: str,
-    display: str,
-    feature: str,
-    role: str,
+    spec: AgentSpec,
     plugins: list[str],
     notes: str = "",
 ) -> str:
     plugin_lines = "\n".join(f"- {item}" for item in plugins) or "- feishu-board"
-    extra = notes.strip() or "This cell is owned by the operative. Enable plugins here or in the Web UI creator panel."
+    extra = notes.strip() or (
+        "Lessons from finished tasks land here. Chat history does not survive /clear."
+    )
     return (
-        f"# Agent: {display}\n\n"
-        f"Operative id: `{agent}`\n\n"
+        f"# Agent: {spec.display}\n\n"
+        f"Operative id: `{spec.name}`\n"
+        f"OODA: **{spec.ooda.title()}**\n"
+        f"Context window: {spec.context_tokens:,} tokens\n\n"
         "## Feature\n\n"
-        f"{feature}\n\n"
-        f"{role}\n\n"
+        f"{spec.feature}\n\n"
+        f"{spec.style}\n\n"
+        "## Context\n\n"
+        "- Durable memory is the Feishu board plus this file. The chat is disposable.\n"
+        "- Before any context compression, post what must survive to the board.\n"
+        "- After a task: add a ## Lessons bullet under Notes, then /clear or open a new conversation.\n"
+        "- IMF never resumes the previous session.\n\n"
         "## Plugins\n\n"
         f"{plugin_lines}\n\n"
         "## Notes\n\n"

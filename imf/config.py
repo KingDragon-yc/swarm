@@ -13,7 +13,10 @@ from typing import Literal
 
 
 Backend = Literal["openai_compatible", "cursor"]
-AGENT_IDS = ("flash", "pro", "grok", "luna")
+OodaPhase = Literal["observe", "orient", "decide", "act"]
+
+# OODA loop order. Default dispatch follows this sequence.
+AGENT_IDS = ("flash", "pro", "luna", "grok")
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,10 +29,17 @@ class AgentSpec:
     backend: Backend
     model: str
     reasoning: str
+    ooda: OodaPhase
+    context_tokens: int
     feature: str
-    role: str
+    style: str
+    duty: str
     base_url: str = ""
     api_key_env: str = ""
+
+    @property
+    def role(self) -> str:
+        return self.style
 
     @property
     def configured(self) -> bool:
@@ -83,7 +93,18 @@ def load_local_env(path: Path) -> None:
             os.environ.setdefault(key, value)
 
 
-def _deepseek(name: str, display: str, model: str, reasoning: str, feature: str, role: str) -> AgentSpec:
+def _deepseek(
+    *,
+    name: str,
+    display: str,
+    model: str,
+    reasoning: str,
+    ooda: OodaPhase,
+    context_tokens: int,
+    feature: str,
+    style: str,
+    duty: str,
+) -> AgentSpec:
     provider = _env("DEEPSEEK_PROVIDER", "direct").lower()
     if provider not in {"direct", "siliconflow"}:
         raise ValueError("DEEPSEEK_PROVIDER must be direct or siliconflow")
@@ -102,8 +123,11 @@ def _deepseek(name: str, display: str, model: str, reasoning: str, feature: str,
         backend="openai_compatible",
         model=model_name,
         reasoning=_env(f"{name.upper()}_REASONING", reasoning),
+        ooda=ooda,
+        context_tokens=context_tokens,
         feature=feature,
-        role=role,
+        style=style,
+        duty=duty,
         base_url=base_url.rstrip("/"),
         api_key_env=key_env,
     )
@@ -120,28 +144,30 @@ def load_settings(root: Path | None = None) -> Settings:
             display="Flash",
             model="deepseek-v4-flash",
             reasoning="high",
-            feature="Scout",
-            role="Cheap wide coverage of an authorized surface. Feature/style TBD next round.",
+            ooda="observe",
+            context_tokens=1_000_000,
+            feature="Observe — 1M window, restless scout.",
+            style=(
+                "Divergent and unable to sit still. Burn the 1M window on authorized "
+                "surface coverage: paths, configs, hypotheses, odd edges. Dump it to "
+                "the board fast. Do not close the case. Do not issue orders."
+            ),
+            duty="Observe widely. Post raw coverage. Leave Orient and Decide to the others.",
         ),
         "pro": _deepseek(
             name="pro",
             display="Pro",
             model="deepseek-v4-pro",
             reasoning="max",
-            feature="Analyst",
-            role="Deeper pass over the same authorized scope. Feature/style TBD next round.",
-        ),
-        "grok": AgentSpec(
-            name="grok",
-            display="Grok",
-            vendor="xAI via Cursor",
-            backend="cursor",
-            model=_env("CURSOR_GROK_MODEL", "cursor-grok-4.6-high"),
-            reasoning="high",
-            feature="Adversary",
-            role="Alternative paths and counter-examples. Feature/style TBD next round.",
-            base_url=_env("CURSOR_API_BASE"),
-            api_key_env="CURSOR_API_KEY",
+            ooda="orient",
+            context_tokens=1_000_000,
+            feature="Orient — 1M window, god/ghost oscillation.",
+            style=(
+                "神鬼二象性: one beat up at architecture, the next beat down in a "
+                "single offset. Read Flash on the board, shift the frame, drop noise, "
+                "name contradictions. Adjust the picture. Do not act."
+            ),
+            duty="Reframe Flash's log. Oscillate high/low. Hand Luna a clean picture, not a raid.",
         ),
         "luna": AgentSpec(
             name="luna",
@@ -150,8 +176,34 @@ def load_settings(root: Path | None = None) -> Settings:
             backend="cursor",
             model=_env("CURSOR_LUNA_MODEL", "gpt-5.6-luna-high"),
             reasoning="max",
-            feature="Closer",
-            role="Synthesis, judgment, and closing the board. Feature/style TBD next round.",
+            ooda="decide",
+            context_tokens=500_000,
+            feature="Decide — 500k window, generalist closer.",
+            style=(
+                "All-rounder with a 500k window. Read Observe and Orient, pick one "
+                "path, and write a bounded order for Grok: target, allowed steps, "
+                "stop condition. Do not wander into the dirty work."
+            ),
+            duty="Decide. Write one concrete order for Grok on the board.",
+            base_url=_env("CURSOR_API_BASE"),
+            api_key_env="CURSOR_API_KEY",
+        ),
+        "grok": AgentSpec(
+            name="grok",
+            display="Grok",
+            vendor="xAI via Cursor",
+            backend="cursor",
+            model=_env("CURSOR_GROK_MODEL", "cursor-grok-4.6-high"),
+            reasoning="high",
+            ooda="act",
+            context_tokens=256_000,
+            feature="Act — 256k window, sharp and lazy.",
+            style=(
+                "Smart enough, short window, prefers not to think twice. Point and "
+                "shoot: execute Luna's latest order, cite evidence, stop. No replans, "
+                "no extra reconnaissance, no essays."
+            ),
+            duty="Act on Luna's last order only. Do the named steps. Stop.",
             base_url=_env("CURSOR_API_BASE"),
             api_key_env="CURSOR_API_KEY",
         ),
