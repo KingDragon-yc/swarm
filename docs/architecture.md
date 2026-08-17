@@ -29,7 +29,7 @@ Flash 闲不住、1M 窗口，先把授权面铺开。Pro 神鬼二象性，读 
 
 ## 飞书
 
-工作时以飞书文档为 live board；本地 `board.md` 是收工快照。每个 mission 首次同步通过 `FEISHU_FOLDER_TOKEN` 创建自己的文档，生成的 `document_id` 写回 workplace；旧 harness 的 `FEISHU_DOCUMENT_ID` 不会被覆盖。追加使用 `document_revision_id=-1`。同步失败时保留本地未同步条目，避免旧远端内容覆盖本地证据。
+工作时以飞书文档为 live board；本地 `board.md` 是收工快照。每个 mission 首次同步通过 `FEISHU_FOLDER_TOKEN` 创建一份自己的文档，生成的 `document_id` 写回 workplace；四席共用这份 mission 文档，旧 harness 的 `FEISHU_DOCUMENT_ID` 不会被覆盖。追加使用 `document_revision_id=-1`。同步失败时保留本地未同步条目，避免旧远端内容覆盖本地证据。
 
 ## 长轮次与心跳
 

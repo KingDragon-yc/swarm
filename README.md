@@ -57,7 +57,7 @@ mission 只能是 `workplaces/` 的直接子目录，附件会复制进该 workp
 
 ## 飞书 board
 
-配置 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 后，创建任务会新开一篇 Docx。每个 mission 首次同步通过 `FEISHU_FOLDER_TOKEN` 创建自己的文档，并把生成的 `document_id` / URL 写入该 workplace 的 `state.json`。旧 harness 中的 `FEISHU_DOCUMENT_ID` 不会被二代读取或覆盖；OODA 四人依次追加自己的文档，Pause / Finish 把文档拉回 `board.md`。
+配置 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 后，创建任务会新开一篇 Docx。每个 mission 首次同步通过 `FEISHU_FOLDER_TOKEN` 创建一份自己的文档，并把生成的 `document_id` / URL 写入该 workplace 的 `state.json`。旧 harness 中的 `FEISHU_DOCUMENT_ID` 不会被二代读取或覆盖；OODA 四人依次追加同一份 mission 文档，Pause / Finish 把文档拉回 `board.md`。
 
 ## 命令
 
