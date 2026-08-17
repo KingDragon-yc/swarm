@@ -15,6 +15,7 @@ Instant Message Force：善用飞书等 IM 做实时协同。四名特工按 **O
 
 Flash / Pro 走 DeepSeek API；Grok / Luna 走 Cursor CLI，或 `CURSOR_API_BASE` HTTP。
 Cursor operative 使用完整行动模式，并以当前 workplace 作为 workspace/sandbox 边界。
+macOS/Linux 使用 Cursor OS sandbox；Windows CLI 不支持该模式，会退回其 allowlist 模式，仍由当前 workplace、工作目录和提示约束边界。
 
 ## 上下文
 

@@ -25,7 +25,7 @@ Flash 闲不住、1M 窗口，先把授权面铺开。Pro 神鬼二象性，读 
 
 ## 上下文
 
-每人按自己的窗口截取 board。压缩只切已经落盘的 board，不丢未发布的话。任务结束把 `## Lessons` 写入该小区 `AGENTS.md`，然后新开对话（等同 `/clear`）。Cursor 使用完整行动模式，但通过 `--workspace`、`--sandbox enabled` 和 `--trust` 绑定当前 workplace，不带 `--resume`。
+每人按自己的窗口截取 board。压缩只切已经落盘的 board，不丢未发布的话。任务结束把 `## Lessons` 写入该小区 `AGENTS.md`，然后新开对话（等同 `/clear`）。Cursor 使用完整行动模式，通过 `--workspace`、`--trust` 和平台支持的 sandbox/allowlist 模式绑定当前 workplace，不带 `--resume`。macOS/Linux 使用 `--sandbox enabled`；Windows CLI 不支持 OS sandbox，使用其 `--sandbox disabled` allowlist 模式，Windows workplace 应视为本地操作边界而非主机级隔离。
 
 ## 飞书
 

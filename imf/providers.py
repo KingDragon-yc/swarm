@@ -223,6 +223,16 @@ def _cursor_command() -> list[str]:
     return [str(executable)]
 
 
+def cursor_sandbox_mode() -> str:
+    """Return the Cursor CLI execution mode supported by this host.
+
+    Cursor's OS sandbox is available on macOS and Linux.  On Windows the CLI
+    rejects ``--sandbox enabled`` and uses its allowlist mode instead; the
+    active workplace and the prompt still provide the application boundary.
+    """
+    return "disabled" if os.name == "nt" else "enabled"
+
+
 def parse_cursor_json(stdout: str) -> tuple[str, dict[str, Any]]:
     candidates = []
     for raw_line in stdout.splitlines():
@@ -353,7 +363,7 @@ class CursorAdapter:
             "--trust",
             "--force",
             "--sandbox",
-            "enabled",
+            cursor_sandbox_mode(),
             "--workspace",
             str(workspace.resolve()),
             prompt,
