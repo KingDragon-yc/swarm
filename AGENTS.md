@@ -1,36 +1,48 @@
-# Codex / GPT Orchestrator Protocol
+# IMF — Instant Message Force
 
-本仓库用于已授权的 CTF、靶场和 SRC 工作。Codex/GPT 是唯一 orchestrator，负责理解目标、检查证据、执行本地工作、决定是否委派并形成最终结论。
+Four operatives share one Feishu document as the live board, then snapshot it to `workplaces/<mission>/board.md`.
 
-## 稀疏委派
+## Operatives
 
-1. 简单、单路径、低歧义任务全部由 Codex 完成，不调用其他模型。
-2. 只有出现明确的专长缺口、证据缺口，或高风险结论需要独立复核时才委派。
-3. 默认只调用一名专家；第二名只用于独立反例检查。禁止为了“多模型”而一次唤醒全部七名专家。
-4. 专家只提供有边界的报告，不能接管编排、继续分派、修改工作区或向外部系统发消息。
-5. Codex 对专家结论做证据核验；模型间投票不等于事实。
+| id | model | transport |
+|---|---|---|
+| flash | DeepSeek V4 Flash, reasoning high | DeepSeek API |
+| pro | DeepSeek V4 Pro, reasoning max | DeepSeek API |
+| grok | Cursor Grok 4.6 high | Cursor CLI, or HTTP if `CURSOR_API_BASE` is set |
+| luna | GPT Luna max | Cursor CLI, or HTTP if `CURSOR_API_BASE` is set |
 
-## 协作命令
+Feature/style for each operative is a stub this round.
 
-在 `harness` 目录运行：
+## Workplace
 
-```powershell
-python -m collab_demo doctor --probe-cursor
-python -m collab_demo start "<task>" --workspace "<authorized workspace>"
-python -m collab_demo note <run_id> "<verified progress>"
-python -m collab_demo delegate <run_id> <agent> "<bounded question>"
-python -m collab_demo finish <run_id> --summary-file "<final report>"
+```
+workplaces/<mission>/
+  board.md          # Feishu snapshot after pause/finish
+  mission.md
+  notes.md
+  attachments/      # 题干与附件
+  events.jsonl
+  flash/AGENTS.md   # feature + plugins
+  pro/AGENTS.md
+  grok/AGENTS.md
+  luna/AGENTS.md
 ```
 
-先读取 `route` 的建议，再由 Codex 结合证据决定。委派对象仅限 `claude`、`gemini`、`grok`、`deepseek`、`kimi`、`glm`、`qwen`。
+Each cell chooses plugins from `plugins/catalog.json`. Edit `## Plugins` or use the Web UI creator panel.
 
-## 状态和飞书
+## Commands
 
-- `.collab/runs/<run_id>/events.jsonl` 是本地追加式事实账本，`brief.md` 是人类可读投影。
-- 配置飞书凭据后，命令会把同一事件追加到一篇飞书文档；飞书失败不能抹掉本地记录。
-- 任何 API key、App Secret、登录态、Cookie 都不能写入仓库、事件、提示词或飞书文档。
-- SRC 材料发往外部模型前先做数据最小化；API Worker 只接收显式上下文文件。
+```
+python -m imf doctor --probe-cursor
+python -m imf web
+python -m imf start "<title>" "<mission>" --attachments "<dir>"
+python -m imf dispatch <mission_id> "<task>"
+python -m imf snapshot <mission_id>
+python -m imf finish <mission_id>
+```
 
-## 写作风格
+## Board
 
-尽量少使用“不是……而是……”“稳稳接住”等模板化表达。结论以证据、文件、偏移、请求和可复现命令支撑。
+Feishu Docx is the live IM channel. Concurrent posts use `document_revision_id=-1`. Pause or finish pulls the document into `board.md`. Feishu failure cannot erase the local workplace.
+
+Do not write API keys, App Secrets, cookies, or login state into the board, events, prompts, or cells.

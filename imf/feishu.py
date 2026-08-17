@@ -1,4 +1,4 @@
-"""Small Feishu document client used as a projection of the local ledger."""
+"""Feishu Docx client used as the live IM board."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any
 from urllib import error, parse, request
 
 from .config import Settings
-from .core import EventLedger, redact_text
+from .secrets import redact_text
 
 
 _FEISHU_API = "https://open.feishu.cn/open-apis"
@@ -39,7 +39,6 @@ def _text_block(content: str) -> dict[str, Any]:
 
 
 def text_blocks(content: str, *, chunk_size: int = 1800) -> list[dict[str, Any]]:
-    """Convert plain text to conservative Docx paragraph blocks."""
     normalized = redact_text(content).replace("\r\n", "\n")
     if not normalized:
         return [_text_block(" ")]
@@ -50,16 +49,8 @@ def text_blocks(content: str, *, chunk_size: int = 1800) -> list[dict[str, Any]]
     return [_text_block(chunk) for chunk in chunks]
 
 
-def event_text(ledger: EventLedger, event: dict[str, Any]) -> str:
-    events = ledger.events()
-    for index, candidate in enumerate(events, start=1):
-        if candidate == event:
-            return ledger.render_event_text(event, index=index)
-    return ledger.render_event_text(event)
-
-
 class FeishuClient:
-    """Use tenant credentials without persisting tokens or secrets."""
+    """Tenant credentials are held in memory and never written to disk."""
 
     def __init__(self, app_id: str, app_secret: str, *, timeout: int = 30) -> None:
         if not app_id or not app_secret:
@@ -77,10 +68,7 @@ class FeishuClient:
         )
 
     def _fetch_token(self) -> str:
-        payload = {
-            "app_id": self._app_id,
-            "app_secret": self._app_secret,
-        }
+        payload = {"app_id": self._app_id, "app_secret": self._app_secret}
         data = self._raw_request(
             "POST",
             "/auth/v3/tenant_access_token/internal",
@@ -138,9 +126,7 @@ class FeishuClient:
                     attempt=attempt + 1,
                 )
         except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-            raise FeishuError(
-                "Feishu request failed: " + redact_text(str(exc)),
-            ) from exc
+            raise FeishuError("Feishu request failed: " + redact_text(str(exc))) from exc
 
         code = data.get("code", 0)
         if authenticated and code in _TOKEN_EXPIRED_CODES and attempt < 1:
@@ -177,7 +163,6 @@ class FeishuClient:
         return self._raw_request(method, path, body, authenticated=True)
 
     def list_chats(self, *, page_size: int = 50) -> list[dict[str, str]]:
-        """List groups visible to the bot, following bounded pagination."""
         chats: list[dict[str, str]] = []
         page_token = ""
         for _ in range(10):
@@ -231,10 +216,21 @@ class FeishuClient:
                 {"children": blocks[start : start + 50]},
             )
 
+    def raw_content(self, document_id: str) -> str:
+        safe_document_id = parse.quote(document_id, safe="")
+        data = self.request(
+            "GET",
+            f"/docx/v1/documents/{safe_document_id}/raw_content",
+        )
+        content = (data.get("data") or {}).get("content")
+        if not isinstance(content, str):
+            raise FeishuError("Feishu raw_content had no text")
+        return redact_text(content)
+
     def send_chat_text(self, chat_id: str, content: str) -> None:
         self.request(
             "POST",
-            f"/im/v1/messages?receive_id_type=chat_id",
+            "/im/v1/messages?receive_id_type=chat_id",
             {
                 "receive_id": chat_id,
                 "msg_type": "text",
@@ -246,50 +242,7 @@ class FeishuClient:
         )
 
 
-def rebuild_document(
-    settings: Settings,
-    ledger: EventLedger,
-    *,
-    title: str = "",
-    folder_token: str = "",
-) -> str:
-    """Create a fresh Feishu Docx from the current run projection."""
-    client = FeishuClient.from_settings(settings)
-    document_id = client.create_document(
-        title or f"CTF/SRC collaboration · {ledger.run_id}",
-        folder_token,
-    )
-    client.append_text(document_id, ledger.render_wp_text())
-    ledger.update_state(document_id=document_id)
-    return document_id
-
-
-def sync_event(
-    settings: Settings,
-    ledger: EventLedger,
-    event: dict[str, Any],
-) -> str | None:
-    """Append one event to the run document, creating it when needed."""
-    if not settings.feishu_configured:
-        return None
-    state = ledger.read_state()
-    document_id = str(state.get("document_id", "")).strip()
+def document_url(document_id: str) -> str:
     if not document_id:
-        document_id = os.getenv(settings.feishu_document_id_env, "").strip()
-    client = FeishuClient.from_settings(settings)
-    created_new = False
-    if not document_id:
-        folder_token = os.getenv(settings.feishu_folder_token_env, "").strip()
-        document_id = client.create_document(
-            f"CTF/SRC collaboration · {ledger.run_id}",
-            folder_token,
-        )
-        created_new = True
-    if created_new:
-        ledger.update_state(document_id=document_id)
-        client.append_text(document_id, ledger.render_wp_text())
-        return document_id
-    if document_id != state.get("document_id"):
-        ledger.update_state(document_id=document_id)
-    client.append_text(document_id, event_text(ledger, event))
-    return document_id
+        return ""
+    return f"https://feishu.cn/docx/{document_id}"

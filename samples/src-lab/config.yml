@@ -1,0 +1,3 @@
+debug: true
+internal_url: http://127.0.0.1:9/lab-only
+note: dummy lab values; do not treat as a real target
