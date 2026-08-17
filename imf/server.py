@@ -22,10 +22,13 @@ CONTENT_TYPES = {
     ".png": "image/png",
     ".ico": "image/x-icon",
 }
+MAX_JSON_BODY_BYTES = 2 * 1024 * 1024
 
 
 def _json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
     length = int(handler.headers.get("Content-Length", "0") or "0")
+    if length < 0 or length > MAX_JSON_BODY_BYTES:
+        raise ValueError(f"JSON body exceeds {MAX_JSON_BODY_BYTES} bytes")
     raw = handler.rfile.read(length) if length else b"{}"
     if not raw.strip():
         return {}
@@ -186,8 +189,19 @@ class IMFHandler(BaseHTTPRequestHandler):
                 return
             rest = path[len("/api/missions/") :]
             parts = [item for item in rest.split("/") if item]
+            if not parts:
+                self._error(404, "missing mission")
+                return
             mission = self.force.open(parts[0])
             action = parts[1] if len(parts) > 1 else ""
+            if action == "checkin":
+                checkins = self.force.check_in(
+                    mission,
+                    mock=bool(body.get("mock")),
+                    timeout=int(body.get("timeout") or 30),
+                )
+                self._json(200, {"checkins": checkins, "mission": mission.workplace.public_view()})
+                return
             if action == "dispatch":
                 agents = body.get("agents") or list(AGENT_IDS)
                 results = self.force.dispatch(
@@ -204,6 +218,9 @@ class IMFHandler(BaseHTTPRequestHandler):
             if action == "post":
                 agent = str(body.get("agent") or "")
                 text = str(body.get("text") or "")
+                if agent not in (*AGENT_IDS, "imf"):
+                    self._error(400, f"unknown board actor: {agent}")
+                    return
                 warning = mission.board.post(agent, text, sync=not body.get("no_sync"))
                 self._json(200, {"feishu_warning": warning, "board": mission.workplace.read_board()})
                 return

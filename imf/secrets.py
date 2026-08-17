@@ -14,8 +14,15 @@ SECRET_ENV_NAMES = (
 )
 
 _TOKEN_PATTERNS = (
-    re.compile(r"(?i)(api[_-]?key|app[_-]?secret|authorization)\s*[:=]\s*\S+"),
+    re.compile(
+        r"(?i)(api[_-]?key|app[_-]?secret|authorization|password|passwd|pwd|"
+        r"cookie|session(?:[_-]?id)?|access[_-]?token|refresh[_-]?token|secret)"
+        r"\s*[:=]\s*[^\s,;]+",
+    ),
     re.compile(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]{12,}"),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
 )
 
 

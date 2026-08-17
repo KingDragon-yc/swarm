@@ -43,8 +43,6 @@ class AgentSpec:
 
     @property
     def configured(self) -> bool:
-        if self.backend == "cursor":
-            return True
         return bool(
             self.model
             and self.base_url
