@@ -1,3 +1,14 @@
+# swarm
+
+This repository currently hosts two tracks:
+
+| Path | Track |
+|---|---|
+| `/` (IMF) | Instant Message Force — Feishu OODA operatives |
+| [`awd/`](./awd/) | Qiangwang AI-AWD sapper-v2 adaptation (Phase 1–2 stubs) |
+
+---
+
 # IMF — Instant Message Force
 
 IMF 把四个 AI 特工放在同一篇飞书文档上写 board。飞书是实时 IM 通道；任务暂停或结束后，把文档存成每个目标 workplace 大区里的 `board.md`。
