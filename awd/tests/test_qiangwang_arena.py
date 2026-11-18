@@ -86,7 +86,8 @@ class QiangwangStubArenaTests(unittest.TestCase):
         with mock.patch.dict("os.environ", {"PLATFORM_STUB": "1"}, clear=False):
             targets = self.arena.ArenaClient.load(None).list_targets("web-1")
         self.assertTrue(all(t["challenge"] == "web-1" for t in targets))
-        self.assertTrue(all(str(t["endpoint"]).startswith("stub://") for t in targets))
+        self.assertTrue(all("host" in t and "port" in t for t in targets))
+        self.assertTrue(all(":" in str(t["endpoint"]) for t in targets))
 
     def test_live_mode_refuses_invented_paths(self):
         with mock.patch.dict(

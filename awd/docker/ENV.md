@@ -64,4 +64,15 @@ python3 -c "from arena import ArenaClient; print(ArenaClient.load(None).board())
 bash scripts/stub-board-smoke.sh
 ```
 
-See `awd/README.md` for the full Phase 1–2 layout notes.
+## Phase 3 attack / harvester
+
+```bash
+bash scripts/attack-harvester-smoke.sh
+# or:
+python3 lib/harvester.py --root "$SAPPER_ROOT" -c web-1 --json
+python3 lib/patcher.py <challenge> <artifact> --root "$SAPPER_ROOT"
+```
+
+State files under `SAPPER_ROOT`: `round-state.json`, `unlock-state.json`, `harvest-ledger.json`.
+
+See `awd/README.md` for layout notes.
