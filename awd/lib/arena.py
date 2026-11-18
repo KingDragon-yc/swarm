@@ -113,6 +113,7 @@ def write_round_state(board: dict, runs_root: Path | None = None) -> Path:
         "round_seconds": board.get("round_seconds"),
         "time_left_sec": board.get("time_left_sec"),
         "challenges": board.get("challenges") or [],
+        "unlock": board.get("unlock"),
         "score": board.get("score"),
         "raw_board": board,
     }
@@ -312,7 +313,25 @@ class ArenaClient:
             status=None,
         )
 
-    # -- capabilities (Phase 1–2 surface) ----------------------------------
+    def _enrich_with_unlock(self, data: dict) -> dict:
+        """Merge FIRST_BLOOD / PATCH_QUOTA / SLA_STATUS from unlock-state.json."""
+        try:
+            from unlock import UnlockGate
+        except ImportError:  # pragma: no cover
+            return data
+        gate = UnlockGate(self.runs_root)
+        round_id = data.get("round_id")
+        if round_id is not None:
+            gate.sync_round(int(round_id))
+        challenges = data.get("challenges") or []
+        if isinstance(challenges, list):
+            data["challenges"] = gate.enrich_challenges(
+                challenges, round_id=int(round_id) if round_id is not None else None
+            )
+        data["unlock"] = gate.snapshot()
+        return data
+
+    # -- capabilities (Phase 1–3 surface) ----------------------------------
     def board(self) -> dict:
         """Round id, time left, challenges (+ unlock/service fields when known)."""
         if self.stub:
@@ -320,6 +339,7 @@ class ArenaClient:
         else:
             self._not_wired("board")
             data = {}  # pragma: no cover
+        data = self._enrich_with_unlock(data)
         write_round_state(data, self.runs_root)
         return data
 
@@ -345,28 +365,41 @@ class ArenaClient:
         return out
 
     def list_targets(self, challenge_id: str | None = None) -> list[dict]:
-        """Peer endpoints per challenge×team — discovery method Unknown."""
+        """Peer endpoints per challenge×team — discovery method Unknown.
+
+        Stub targets include host/port so exp_*.py <ip> <port> can run offline.
+        """
         if self.stub:
-            challenges = self.list_challenges()
+            # Avoid recursive board write storms: build from stub board once.
+            board = self._stub_board()
+            challenges = board.get("challenges") or []
             if challenge_id:
-                challenges = [c for c in challenges if c.get("unique_code") == challenge_id
-                              or c.get("id") == challenge_id]
+                challenges = [
+                    c for c in challenges
+                    if isinstance(c, dict)
+                    and (c.get("unique_code") == challenge_id or c.get("id") == challenge_id)
+                ]
             targets = []
-            for c in challenges:
+            for idx, c in enumerate(challenges):
+                if not isinstance(c, dict):
+                    continue
                 code = c.get("unique_code") or c.get("id")
-                # Fake peers only — not real contest addresses.
-                targets.append({
-                    "challenge": code,
-                    "team": "stub-team-a",
-                    "endpoint": f"stub://peer/{code}/a",
-                    "_note": "stub peer; real discovery Unknown",
-                })
-                targets.append({
-                    "challenge": code,
-                    "team": "stub-team-b",
-                    "endpoint": f"stub://peer/{code}/b",
-                    "_note": "stub peer; real discovery Unknown",
-                })
+                # Deterministic fake peers — not real contest addresses.
+                base = 10 + (idx % 200)
+                for n, team, octet in (
+                    (1, "stub-team-a", 1),
+                    (2, "stub-team-b", 2),
+                ):
+                    host = f"10.0.{base}.{octet}"
+                    port = 80
+                    targets.append({
+                        "challenge": code,
+                        "team": team,
+                        "host": host,
+                        "port": port,
+                        "endpoint": f"{host}:{port}",
+                        "_note": "stub peer; real discovery Unknown",
+                    })
             return targets
         self._not_wired("list_targets")
         return []  # pragma: no cover
